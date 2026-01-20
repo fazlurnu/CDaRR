@@ -6,7 +6,7 @@ from joblib import Parallel, delayed
 import numpy as np
 from typing import Dict, Any, List, Tuple
 
-from sim.get_ipr_stochastic_env import get_ipr_stochastic_env
+from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_env
 
 
 def _run_one(
@@ -69,7 +69,7 @@ def run_multiple_jobs(
     overall_ipr = 1.0 - (n_los / float(n_runs * 100.0))
 
     return {
-        "overall_ipr:": overall_ipr,
+        "overall_ipr": overall_ipr,
         "ipr": ipr_arr,
         "worst_cpa": worst_cpa_arr,
         "sim_timer": sim_timer_arr,
@@ -94,6 +94,6 @@ if __name__ == "__main__":
         dpsi=45,
     )
 
-    print("Overall IPR:", results["overall_ipr:"])
+    print("Overall IPR", results["overall_ipr:"])
     print("Worst CPA array:", results["worst_cpa"])
     print("Sim timer array:", results["sim_timer"])

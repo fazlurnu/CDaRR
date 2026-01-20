@@ -1,4 +1,4 @@
-from sim.get_ipr_stochastic_env import get_ipr_stochastic_env
+from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_env
 import numpy as np
 
 distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env(
