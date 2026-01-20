@@ -57,11 +57,19 @@ def run_multiple_jobs(
         for rep in range(n_runs)
     )
 
+    # here we assume the nb of pair is always 100 per run
+    # we use that number to recompute the ipr for the whole run
+    # mean of IPR is not the IPR of the whole run
+
     ipr_arr, worst_cpa_arr, sim_timer_arr, n_active_conflict_arr = map(
         np.array, zip(*results)
     )
 
+    n_los = np.sum((1.0 - ipr_arr) * 100.0)
+    overall_ipr = 1.0 - (n_los / float(n_runs * 100.0))
+
     return {
+        "overall_ipr:": overall_ipr,
         "ipr": ipr_arr,
         "worst_cpa": worst_cpa_arr,
         "sim_timer": sim_timer_arr,
@@ -82,13 +90,10 @@ if __name__ == "__main__":
         confidence_interval=42.3,
         confidence_interval_velo=5.0,
         reception_prob=0.95,
-        lookahead_time=120,
+        lookahead_time=15,
         dpsi=45,
     )
 
-    print("IPR array:", results["ipr"])
+    print("Overall IPR:", results["overall_ipr:"])
     print("Worst CPA array:", results["worst_cpa"])
-    print("Mean IPR:", results["ipr_mean"])
-    print("Worst CPA:", results["worst_cpa_min"])
     print("Sim timer array:", results["sim_timer"])
-    print("Max sim time:", results["sim_timer_max"])
