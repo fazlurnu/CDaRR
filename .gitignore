@@ -9,3 +9,6 @@ results/*.csv
 results/*.DS_Store
 .DS_Store
 1_RPZ_LAT_Optimization.code-workspace
+*log
+.benchmarks
+.ipynb_checkpoints
