@@ -28,15 +28,16 @@ from sim.utils import (
     _check_tcpa_tinhor_per_pair,
     done_with_timeout,
     get_configs,
+    suppress_output
 )
-
 
 # ---------------------------------------------------------
 # Safe BlueSky initialization (only once)
 # ---------------------------------------------------------
 if not getattr(bs, "_joblib_inited", False):
-    bs.init(mode="sim", detached=True)
-    bs._joblib_inited = True
+    with suppress_output():
+        bs.init(mode="sim", detached=True)
+        bs._joblib_inited = True
 
 
 # ---------------------------------------------------------
@@ -208,6 +209,7 @@ def get_ipr_stochastic_env(
                 conf_detection,
                 ownship_adsl,
                 intruder_adsl,
+                asas_marh
             )
 
             missed = (

@@ -23,7 +23,7 @@ def generate_initial_samples(bounds, parameters, n_samples, seed):
     # Run initial simulations for the first tanh fitting
     results = []
 
-    counter = 0
+    counter = 1
 
     for resofach, lookahead_time in X_raw:    
         print(f"{counter}/{len(X_raw)}. Running resofach: {resofach:.3f}, lookahead_time: {lookahead_time:.3f}")
@@ -43,5 +43,7 @@ def generate_initial_samples(bounds, parameters, n_samples, seed):
             "x2_lookahead_time": lookahead_time,
             "sim_results": sim_results,
         })
+
+        counter += 1
 
     return results

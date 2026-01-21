@@ -5,6 +5,20 @@ from pathlib import Path
 import bluesky as bs
 from types import SimpleNamespace
 
+import os
+import sys
+from contextlib import contextmanager
+
+@contextmanager
+def suppress_output():
+    with open(os.devnull, "w") as devnull:
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        sys.stdout, sys.stderr = devnull, devnull
+        try:
+            yield
+        finally:
+            sys.stdout, sys.stderr = old_stdout, old_stderr
+            
 def _check_tcpa_tinhor_per_pair(id, tcpa, tinhor):
     """
     Returns:

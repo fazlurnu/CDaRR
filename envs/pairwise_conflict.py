@@ -118,7 +118,6 @@ class PairwiseHorConflict():
             
     def reset(self) -> None:      
         bs.traf.reset()
-        bs.sim.reset()
 
     def _get_states(self):
         return bs.traf
@@ -181,4 +180,3 @@ class PairwiseHorConflict():
         # Do NOT quit the BlueSky simulator here.
         # Just clear traffic/state that this env created.
         bs.traf.reset()
-        bs.sim.reset()

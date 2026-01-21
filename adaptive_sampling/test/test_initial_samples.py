@@ -31,34 +31,37 @@ bounds = SimpleNamespace(
     x2_max=120.0
 )
 
-confidence_interval_list = [15.0]
-confidence_interval_velo_list = [0.5]
+confidence_interval_list = [1.5, 15.0]
+confidence_interval_velo_list = [0.5, 1.5]
+dpsi_list = [180, 24, 4, 2]
 
 for ci in confidence_interval_list:
     for civ in confidence_interval_velo_list:
+        for dpsi in dpsi_list:
+            print("Generating initial samples for CI:", ci, "CIV:", civ, "DPSI:", dpsi)
 
-        params = SimpleNamespace(
-            confidence_interval=ci,
-            confidence_interval_velo=civ,
-            reception_prob=0.95,
-            dpsi=45,
-        )
+            params = SimpleNamespace(
+                confidence_interval=ci,
+                confidence_interval_velo=civ,
+                reception_prob=0.95,
+                dpsi=dpsi,
+            )
 
-        results = generate_initial_samples(bounds, params, n_samples=32, seed=42)
+            results = generate_initial_samples(bounds, params, n_samples=512, seed=42)
 
-        results_clean = to_python(results)
+            results_clean = to_python(results)
 
-        output_dir = "results/tests"
-        os.makedirs(output_dir, exist_ok=True)
+            output_dir = "results/tests"
+            os.makedirs(output_dir, exist_ok=True)
 
-        output_path = os.path.join(
-            output_dir,
-            f"initial_samples_results_"
-            f"{params.confidence_interval}_"
-            f"{params.confidence_interval_velo}_"
-            f"{params.reception_prob}_"
-            f"{params.dpsi}.json"
-        )
+            output_path = os.path.join(
+                output_dir,
+                f"initial_samples_results_"
+                f"{params.confidence_interval}_"
+                f"{params.confidence_interval_velo}_"
+                f"{params.reception_prob}_"
+                f"{params.dpsi}.json"
+            )
 
-        with open(output_path, "w") as f:
-            json.dump(results_clean, f, indent=2)
+            with open(output_path, "w") as f:
+                json.dump(results_clean, f, indent=2)

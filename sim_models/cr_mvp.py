@@ -129,7 +129,12 @@ class MVP(Entity):
         # Remove pairs from the list that are past CPA or have deleted aircraft
         self.resopairs -= delpairs
 
-    def resolve(self, conf, ownship, intruder):
+    def resolve(self, conf, ownship, intruder, resofach):
+        # here always update the resolution factor for horizontal
+        # might be handy for future implementations when resofach
+        # can change durting simulation
+        
+        self.resofach = resofach
         ''' Resolve all current conflicts '''
         # Initialize an array to store the resolution velocity vector for all A/C
         dv = np.zeros((ownship.ntraf, 3))
