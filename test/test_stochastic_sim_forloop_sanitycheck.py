@@ -47,6 +47,7 @@ def reset_between_cases(pairwise=None):
     # Reset BlueSky traffic
     try:
         bs.traf.reset()
+        bs.sim.reset()
     except Exception:
         pass
     

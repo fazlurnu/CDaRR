@@ -1,5 +1,19 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+
+import json
+
+def to_python(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, dict):
+        return {k: to_python(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [to_python(v) for v in obj]
+    return obj
 
 from adaptive_sampling.sampling.generate_initial_samples import generate_initial_samples
 from types import SimpleNamespace
@@ -17,60 +31,34 @@ bounds = SimpleNamespace(
     x2_max=120.0
 )
 
-params = SimpleNamespace(
-    confidence_interval=15.0,
-    confidence_interval_velo=0.5,
-    reception_prob=0.95,
-    dpsi=45,
-)
+confidence_interval_list = [15.0]
+confidence_interval_velo_list = [0.5]
 
-results = generate_initial_samples(bounds, params, n_samples=32, seed=42)
+for ci in confidence_interval_list:
+    for civ in confidence_interval_velo_list:
 
-x1 = np.array([r['x1_resofach'] for r in results])
-x2 = np.array([r['x2_lookahead_time'] for r in results])
-ipr = np.array([r['sim_results']['overall_ipr'] for r in results])
+        params = SimpleNamespace(
+            confidence_interval=ci,
+            confidence_interval_velo=civ,
+            reception_prob=0.95,
+            dpsi=45,
+        )
 
-df = pd.DataFrame({
-    'resofach': x1,
-    'lookahead_time': x2,
-    'ipr': ipr,
-})
+        results = generate_initial_samples(bounds, params, n_samples=32, seed=42)
 
-# Save results
-df.to_csv(
-    f'results/initial_samples_results_'
-    f'{params.confidence_interval}_'
-    f'{params.confidence_interval_velo}_'
-    f'{params.reception_prob}_'
-    f'{params.dpsi}.csv',
-    index=False
-)
+        results_clean = to_python(results)
 
-# Masks
-unsafe = df['ipr'] < 0.999
-safe = ~unsafe
+        output_dir = "results/tests"
+        os.makedirs(output_dir, exist_ok=True)
 
-# Plot
-plt.figure(figsize=(6, 5))
+        output_path = os.path.join(
+            output_dir,
+            f"initial_samples_results_"
+            f"{params.confidence_interval}_"
+            f"{params.confidence_interval_velo}_"
+            f"{params.reception_prob}_"
+            f"{params.dpsi}.json"
+        )
 
-plt.scatter(
-    df.loc[unsafe, 'resofach'],
-    df.loc[unsafe, 'lookahead_time'],
-    color='tab:red',
-    label='Unsafe',
-    s=80
-)
-
-plt.scatter(
-    df.loc[safe, 'resofach'],
-    df.loc[safe, 'lookahead_time'],
-    color='tab:green',
-    label='Safe',
-    s=80
-)
-
-plt.xlabel("x1 (resofach)")
-plt.ylabel("x2 (lookahead time)")
-plt.title("Simulation Results")
-plt.legend()
-plt.show()
+        with open(output_path, "w") as f:
+            json.dump(results_clean, f, indent=2)
