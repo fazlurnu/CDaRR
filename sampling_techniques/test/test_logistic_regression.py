@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # read json file
-with open("results/example/initial_samples_results_1.5_0.5_0.95_180.json", "r") as f:
+with open("results/example/initial_samples_results_1.5_0.5_0.95_24.json", "r") as f:
     test_data = json.load(f)
 
 lookahead_time_array = [d["x2_lookahead_time"] for d in test_data]

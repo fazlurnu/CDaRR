@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Tuple
 from dataclasses import dataclass
 
 import numpy as np
