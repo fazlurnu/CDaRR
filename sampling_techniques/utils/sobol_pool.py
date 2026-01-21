@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.stats import qmc
 
-def generate_sobol_samples(
+def generate_sobol_points(
     n_samples: int = 1024,
     seed: int = 42,
 ):

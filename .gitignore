@@ -12,3 +12,4 @@ results/*.DS_Store
 *log
 .benchmarks
 .ipynb_checkpoints
+results/tests

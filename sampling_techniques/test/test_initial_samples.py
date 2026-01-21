@@ -15,7 +15,7 @@ def to_python(obj):
         return [to_python(v) for v in obj]
     return obj
 
-from adaptive_sampling.sampling.generate_initial_samples import generate_initial_samples
+from sampling_techniques.sampling.generate_ipr_sobol_samples import generate_ipr_sobol_samples
 from types import SimpleNamespace
 
 import numpy as np
@@ -47,7 +47,7 @@ for ci in confidence_interval_list:
                 dpsi=dpsi,
             )
 
-            results = generate_initial_samples(bounds, params, n_samples=512, seed=42)
+            results = generate_ipr_sobol_samples(bounds, params, n_samples=512, seed=42)
 
             results_clean = to_python(results)
 

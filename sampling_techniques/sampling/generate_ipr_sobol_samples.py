@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from adaptive_sampling.utils.sobol_pool import generate_sobol_samples
-from adaptive_sampling.utils.scaling import uniform_denorm
+from sampling_techniques.utils.sobol_pool import generate_sobol_points
+from sampling_techniques.utils.scaling import uniform_denorm
 from sim.pairwise_stochastic.run_multiple_jobs import run_multiple_jobs
 from types import SimpleNamespace
 
@@ -16,8 +16,8 @@ bounds = SimpleNamespace(
     x2_max=120.0
 )
 
-def generate_initial_samples(bounds, parameters, n_samples, seed):
-    samples = generate_sobol_samples(n_samples=n_samples, seed=seed)
+def generate_ipr_sobol_samples(bounds, parameters, n_samples, seed):
+    samples = generate_sobol_points(n_samples=n_samples, seed=seed)
     X_raw = uniform_denorm(bounds, samples)
 
     # Run initial simulations for the first tanh fitting
