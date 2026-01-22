@@ -15,7 +15,7 @@ def to_python(obj):
         return [to_python(v) for v in obj]
     return obj
 
-from sampling_techniques.sampling.generate_ipr_sobol_samples import generate_ipr_sobol_samples
+from sampling_techniques.sampling.generate_ipr_from_samples import generate_ipr_sobol_samples
 from types import SimpleNamespace
 
 import numpy as np

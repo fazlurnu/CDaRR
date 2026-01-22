@@ -10,12 +10,12 @@ import numpy as np
 results = run_multiple_jobs(
     n_runs=12,
     n_jobs=4,
-    asas_marh=1.05,
-    confidence_interval=42.3,
-    confidence_interval_velo=5.0,
+    asas_marh=1.2,
+    confidence_interval=15,
+    confidence_interval_velo=0.5,
     reception_prob=0.95,
-    lookahead_time=15,
-    dpsi=45,
+    lookahead_time=240,
+    dpsi=2,
 )
 
 cfg = get_configs()
@@ -24,7 +24,7 @@ cfg = get_configs()
 print("Overall IPR:", results["overall_ipr"])
 print("Worst CPA array:", results["worst_cpa"])
 print("Sim timer array:", results["sim_timer"])
-
+print("N active conflict:", results["n_active_conflict"])
 
 unique_worst_cpa = np.unique(results["worst_cpa"])
 assert len(results["worst_cpa"]) == len(unique_worst_cpa), (

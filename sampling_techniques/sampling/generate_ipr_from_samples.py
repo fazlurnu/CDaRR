@@ -16,6 +16,37 @@ bounds = SimpleNamespace(
     x2_max=120.0
 )
 
+def generate_ipr_from_samples(bounds, parameters, samples_normalized):
+    X_raw = uniform_denorm(bounds, samples_normalized)
+
+    # Run initial simulations for the first tanh fitting
+    results = []
+
+    counter = 1
+
+    for resofach, lookahead_time in X_raw:    
+        print(f"{counter}/{len(X_raw)}. Running resofach: {resofach:.3f}, lookahead_time: {lookahead_time:.3f}")
+        sim_results = run_multiple_jobs(
+            n_runs=4,
+            n_jobs=4,
+            asas_marh=resofach,
+            lookahead_time=lookahead_time,
+            confidence_interval=parameters.confidence_interval,
+            confidence_interval_velo=parameters.confidence_interval_velo,
+            reception_prob=parameters.reception_prob,
+            dpsi=parameters.dpsi,
+        )
+
+        results.append({
+            "x1_resofach": resofach,
+            "x2_lookahead_time": lookahead_time,
+            "sim_results": sim_results,
+        })
+
+        counter += 1
+
+    return results
+
 def generate_ipr_sobol_samples(bounds, parameters, n_samples, seed):
     samples = generate_sobol_points(bounds, n_samples=n_samples, seed=seed)
     X_raw = uniform_denorm(bounds, samples)

@@ -54,9 +54,9 @@ def _check_tcpa_tinhor_per_pair(id, tcpa, tinhor):
     done_now = bool(np.all(tcpa_pairs < 0) and np.all(tin_pairs < 0))
 
     # Count how many are still "active conflicts ahead"
-    n_active = int(np.sum((tcpa_pairs > 0) & (tin_pairs > 0)))
+    is_active = (tcpa_pairs > 0) & (tin_pairs > 0)
 
-    return done_now, n_active
+    return done_now, is_active
 
 def done_with_timeout(done_now: bool,
                       

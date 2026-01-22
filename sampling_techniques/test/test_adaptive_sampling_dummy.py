@@ -40,6 +40,7 @@ def generate_ipr_from_next_data_dummy(
         ipr_values: overall_ipr for each selected point (same order)
         next_data_remaining: next_data with selected points removed
     """
+
     k = min(k, len(next_data))  # safety
     sample_points, next_data_remaining = pick_next_points_near_p05(
         model=model,
@@ -48,6 +49,8 @@ def generate_ipr_from_next_data_dummy(
         balanced=balanced,
     )
     ipr_values = [p["sim_results"]["overall_ipr"] for p in sample_points]
+
+    print("Selected points and their IPRs:  ", [(p["x1_resofach"], p["x2_lookahead_time"], ipr) for p, ipr in zip(sample_points, ipr_values)])
     return sample_points, ipr_values, next_data_remaining
 
 

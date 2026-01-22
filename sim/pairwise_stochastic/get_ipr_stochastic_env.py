@@ -109,7 +109,11 @@ def get_ipr_stochastic_env(
     )
 
     simdt = bs.settings.simdt * SIMDT_FACTOR
-    tmax = lookahead_time * cfg.tmax_factor
+    
+    # the simulation should not run for more than 5 minutes
+    # if it runs for more than 5 mins, that means the conflict
+    # cannot be solved in time
+    tmax = min(lookahead_time * cfg.tmax_factor, 300.0)
 
     # ----------------------------
     # ADSL setup
@@ -224,11 +228,17 @@ def get_ipr_stochastic_env(
         distance_array.append(dist)
 
         # --- Done logic ---
-        done_now, n_active = _check_tcpa_tinhor_per_pair(
+        done_now, is_active = _check_tcpa_tinhor_per_pair(
             bs.traf.id,
             conf_detection_gt.tcpa_all,
             conf_detection_gt.tinhor_all,
         )
+
+        # n_active: active conflicts whose minimum distance so far is still > 50 m
+        dist_hist = np.asarray(distance_array)
+        min_dist_so_far = np.min(dist_hist, axis=0)
+
+        n_active = int(np.sum(is_active & (min_dist_so_far > 50.0)))
 
         done_start_time, should_stop = done_with_timeout(
             done_now,

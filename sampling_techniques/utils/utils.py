@@ -1,5 +1,8 @@
 from typing import Any, Dict, List, Sequence, Tuple
 
+def split_initial_refinement(data: Sequence[Dict[str, Any]], n_initial: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    return data[:n_initial], data[n_initial:]
+
 def extract_features_and_labels(
     data: Sequence[Dict[str, Any]],
     ipr_threshold: float,

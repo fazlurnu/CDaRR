@@ -71,14 +71,10 @@ def run_multiple_jobs(
     return {
         "overall_ipr": overall_ipr,
         "ipr": ipr_arr,
-        "worst_cpa": worst_cpa_arr,
+        "worst_cpa": np.round(worst_cpa_arr, 3),
         "sim_timer": sim_timer_arr,
-        "n_active_conflict": n_active_conflict_arr,
-        "ipr_mean": float(ipr_arr.mean()),
-        "ipr_std": float(ipr_arr.std()),
+        "n_active_conflict": np.sum(n_active_conflict_arr),
         "worst_cpa_min": float(worst_cpa_arr.min()),
-        "sim_timer_mean": float(sim_timer_arr.mean()),
-        "sim_timer_max": float(sim_timer_arr.max()),
     }
 
 if __name__ == "__main__":
