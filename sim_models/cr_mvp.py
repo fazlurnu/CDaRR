@@ -129,6 +129,8 @@ class MVP(Entity):
         # Remove pairs from the list that are past CPA or have deleted aircraft
         self.resopairs -= delpairs
 
+        return delpairs
+
     def resolve(self, conf, ownship, intruder, resofach):
         # here always update the resolution factor for horizontal
         # might be handy for future implementations when resofach
@@ -223,8 +225,6 @@ class MVP(Entity):
 
         # If resolutions are limited in horizontal direction, keep alt at selected alt
         alt = alt * (1 - self.swresohoriz) + ownship.selalt * self.swresohoriz
-
-        self.resumenav(conf, ownship, intruder)
 
         return newtrack, newgscapped, vscapped, alt, self.resopairs
 
