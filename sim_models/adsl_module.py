@@ -39,6 +39,9 @@ class ADSL:
         pos_std = float(confidence_interval) / self.CI95_TO_STD_2D
         vel_std = float(confidence_interval_velo) / self.CI95_TO_STD_2D
 
+        self.pos_std = pos_std
+        self.vel_std = vel_std
+
         self.msg = ADSLMessage()
         self.reception = ReceptionModel(reception_prob=reception_prob, rng=self.rng)
         self.noise = NoiseModel(pos_std_m=pos_std, vel_std_ms=vel_std, rng=self.rng)

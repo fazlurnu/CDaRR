@@ -76,7 +76,7 @@ else:
 
 stats = {}
 
-for dpsi in range(2, 46, 1):
+for dpsi in range(2, 46, 2):
     pairwise = PairwiseHorConflict(
             pair_width=width, pair_height=height,
             asas_pzr_m=horizontal_sep, dtlookahead=lookahead_time + 1,
@@ -324,7 +324,10 @@ for dpsi in range(2, 46, 1):
 
     stats[dpsi] = {"recall": tpr, "precision": ppv,
                    "accuracy": acc, "FPR": fpr,
-                   "csi": csi}
+                   "csi": csi,
+                   "true_pos": micro_cm["TP"], "true_neg": micro_cm["TN"],
+                   "false_pos": micro_cm["FP"], "false_neg": micro_cm["FN"],
+                   "ipr": ipr}
 
 # Convert {dpsi: {metric: value}} -> table
 df = (

@@ -26,8 +26,8 @@
 
   "adsl": {
     "seed": 44,
-    "confidence_interval_m": 15,
-    "confidence_interval_velo_mps": 1.5,
+    "confidence_interval_m": 10,
+    "confidence_interval_velo_mps": 1,
     "reception_prob": 1.0
   },
 
