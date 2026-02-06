@@ -145,6 +145,45 @@ def analytical_dcpa_prob_gt(x, mu_r, Sigma_r, mu_v, Sigma_v, Ktheta=248):
     # Clamp just in case
     return float(np.clip(p, 0.0, 1.0))
 
+def analytical_past_cpa_prob(mu_rel, Sigma_rel, nu_rel, Sigma_nu, eps=1e-12):
+    """
+    First-order (delta-method) approximation of P(t_CPA < 0)
+    with:
+      mu_rel = E[intruder - ownship]  (meters)
+      nu_rel = E[ownship - intruder]  (m/s)
+
+    Define S := (rel_pos · rel_vel) = x_rel · nu_rel.
+    Then t_CPA = S / ||nu_rel||^2, hence t_CPA < 0  <=>  S < 0.
+
+    Approx:
+      S ~ N(m, s^2)
+      m  = mu_rel^T nu_rel
+      s^2 = nu_rel^T Sigma_rel nu_rel + mu_rel^T Sigma_nu mu_rel
+
+    So:
+      P(t_CPA < 0) = P(S < 0) = Phi(-m/s)
+    """
+    mu_rel = np.asarray(mu_rel, float).reshape(2)
+    nu_rel = np.asarray(nu_rel, float).reshape(2)
+
+    Sigma_rel = _regularize_spd(Sigma_rel, eps=1e-9)
+    Sigma_nu  = _regularize_spd(Sigma_nu,  eps=1e-9)
+
+    m = float(mu_rel @ nu_rel)
+    s2 = float(nu_rel @ Sigma_rel @ nu_rel + mu_rel @ Sigma_nu @ mu_rel)
+
+    if not np.isfinite(s2) or s2 <= eps:
+        # Degenerate fallback: S is (almost) deterministic
+        if m < 0.0:
+            return 1.0
+        if m > 0.0:
+            return 0.0
+        return 0.5
+
+    s = math.sqrt(s2)
+    p = float(Phi(-m / s))   # <-- key sign
+    return float(np.clip(p, 0.0, 1.0))
+
 
 # -------------------------
 # Modified method
@@ -241,7 +280,7 @@ def resumenav_probabilistic(reso, conf, ownship, intruder):
     Sigma_r = _regularize_spd(Sigma_r, eps=1e-6)
     Sigma_v = _regularize_spd(Sigma_v, eps=1e-6)
 
-    prob_threshold = float(getattr(conf, "dcpa_prob_threshold", 0.9995))
+    prob_threshold = float(getattr(conf, "dcpa_prob_threshold", 0.999))
     Ktheta = int(getattr(conf, "dcpa_prob_Ktheta", 248))
 
     delpairs = set()
@@ -287,29 +326,26 @@ def resumenav_probabilistic(reso, conf, ownship, intruder):
 
         # Criterion 1: intruder maintains current velocity (Vi,c)
         mu_v1 = np.array([Vo_u - Vi_c_u, Vo_v - Vi_c_v], dtype=float)
-        p1 = analytical_dcpa_prob_gt(rpz*1.05, mu_r, Sigma_r, mu_v1, Sigma_v, Ktheta=Ktheta)
+        p1 = analytical_dcpa_prob_gt(rpz, mu_r, Sigma_r, mu_v1, Sigma_v, Ktheta=Ktheta)
         crit1 = (p1 > prob_threshold)
 
         # Criterion 2: intruder reverts to initial velocity (Vi,i)
         Vi_i_u, Vi_i_v = reso._intr_init_vel.get(conflict, (Vi_c_u, Vi_c_v))
         mu_v2 = np.array([Vo_u - float(Vi_i_u), Vo_v - float(Vi_i_v)], dtype=float)
-        p2 = analytical_dcpa_prob_gt(rpz*1.05, mu_r, Sigma_r, mu_v2, Sigma_v, Ktheta=Ktheta)
+        p2 = analytical_dcpa_prob_gt(rpz, mu_r, Sigma_r, mu_v2, Sigma_v, Ktheta=Ktheta)
         crit2 = (p2 > prob_threshold)
         
-        # Criterion 3: conflict must have passed
-        re = 6371000.
-        dist = re * np.array([np.radians(intruder.lon[idx2] - ownship.lon[idx1]) *
-                        np.cos(0.5 * np.radians(intruder.lat[idx2] +
-                                                ownship.lat[idx1])),
-                        np.radians(intruder.lat[idx2] - ownship.lat[idx1])])
+        # Criterion 3: probabilistic past-CPA (P(t_CPA < 0) > threshold)
+        mu_rel = mu_r  # intruder - ownship (already)
 
-        # Relative velocity vector
-        vrel = np.array([intruder.gseast[idx2] - ownship.gseast[idx1],
-                            intruder.gsnorth[idx2] - ownship.gsnorth[idx1]])
+        # IMPORTANT: ownship - intruder (matches paper sign for Phi(-m/s))
+        nu_rel = np.array([
+            float(ownship.gseast[idx1] - intruder.gseast[idx2]),
+            float(ownship.gsnorth[idx1] - intruder.gsnorth[idx2])
+        ], dtype=float)
 
-        # Check if conflict is past CPA
-        crit3 = np.dot(dist, vrel) > 0.0
-        # print(dist, vrel)
+        p3 = analytical_past_cpa_prob(mu_rel, Sigma_r, nu_rel, Sigma_v)
+        crit3 = (p3 > prob_threshold)
 
         if crit1 and crit2 and crit3:
             delpairs.add(conflict)

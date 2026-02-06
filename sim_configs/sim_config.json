@@ -21,7 +21,8 @@
 
   "conflict_models": {
     "detection": "StateBased",
-    "resolution": "MVP"
+    "resolution": "MVP",
+    "recovery": "Probabilistic"
   },
 
   "adsl": {

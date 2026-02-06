@@ -11,7 +11,7 @@ from sim_models.cr_mvp import MVP
 from sim_models.cr_vo import VO
 from sim_models.adsl_module import ADSL
 from sim_models.reception_model import ReceptionModel
-from sim_models.cr_resumenav_probablistic import resumenav_probabilistic
+from sim_models.crr_resumenav_probabilistic import resumenav_probabilistic
 
 from sim.utils import _check_tcpa_tinhor_per_pair, done_with_timeout, get_configs
 
@@ -31,10 +31,10 @@ cfg = get_configs()
 width = 10
 height = 10
 horizontal_sep = cfg.horizontal_sep  # in meters
-lookahead_time = 100
+lookahead_time = 120
 init_speed_ownship = cfg.init_speed_ownship # m/s
 init_speed_intruder = cfg.init_speed_intruder # m/s
-dpsi = 2
+dpsi = 180
 aircraft_type = cfg.aircraft_type
 
 SIMDT_FACTOR = cfg.SIMDT_FACTOR
@@ -171,7 +171,7 @@ while sim_timer_second < 600:
         conf_detection.sigma_r = ownship_adsl.pos_std + ownship_adsl.pos_std
         conf_detection.sigma_v = ownship_adsl.vel_std + ownship_adsl.vel_std
 
-        delpairs_noise = resumenav_probabilistic(conf_resolution, conf_detection, states, states)
+        delpairs_noise = resumenav_probabilistic(conf_resolution, conf_detection, ownship_obs, intruder_obs)
         delpairs_truth = conf_resolution.resumenav_double_criteria_dummy(conf_detection, ownship_obs, intruder_obs)
 
         # print(delpairs_noise, delpairs_truth)
@@ -201,7 +201,7 @@ while sim_timer_second < 600:
                         bs.traf.id, conf_detection_groundtruth.tcpa_all, conf_detection_groundtruth.tinhor_all
     )
 
-    # print(f"{sim_timer_second:.2f}, done={done_now}, active_pairs={n_active}")
+    print(f"{sim_timer_second:.2f}, done={done_now}, active_pairs={np.sum(n_active)}")
 
     done_start_time, should_stop = done_with_timeout(
         done_now=done_now,
