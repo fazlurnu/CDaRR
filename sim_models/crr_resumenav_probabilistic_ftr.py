@@ -54,11 +54,19 @@ def _regularize_spd(S, eps=1e-9):
     S = np.asarray(S, float).reshape(2, 2)
     return 0.5 * (S + S.T) + eps * np.eye(2)
 
-def p_theta_projected_normal(theta, mu, Sigma):
+def log_p_theta_projected_normal(theta, mu, Sigma):
     """
-    Angle density p_Theta(theta) for V ~ N(mu, Sigma) in R^2 (projected normal).
-    theta: array in [0,2pi). Sigma must be SPD-ish.
-    Returns p(theta) (not necessarily normalized unless you normalize in caller).
+    Log of the projected-normal angular density p_Theta(theta).
+
+    Numerically stable version that works in log-space to avoid the
+    exp(-large) * exp(+large) overflow/underflow that occurs when
+    the velocity SNR (|mu|/sigma) is high.
+
+    theta : array in [0, 2pi)
+    mu    : (2,) mean velocity
+    Sigma : (2,2) velocity covariance (SPD)
+
+    Returns log p(theta), shape (K,).
     """
     mu = np.asarray(mu, float).reshape(2)
     Sigma = _regularize_spd(Sigma, eps=1e-10)
@@ -81,12 +89,46 @@ def p_theta_projected_normal(theta, mu, Sigma):
     a = np.maximum(a, 1e-15)
     z = b / np.sqrt(a)
 
-    z = np.clip(z, -12.0, 12.0)
+    # --- log-space computation of term = 1/a + (b*sqrt(2pi)/a^1.5)*exp(0.5*z^2)*Phi(z) ---
+    # term1 = 1/a
+    log_term1 = -np.log(a)
 
-    term = 1.0 / a + (b * SQRT2PI / (a ** 1.5)) * np.exp(0.5 * z * z) * Phi(z)
-    const = 1.0 / (2.0 * math.pi * math.sqrt(detS))
-    p = const * np.exp(-0.5 * c) * term
-    return p
+    # term2 = |b| * sqrt(2pi) / a^1.5 * exp(0.5*z^2) * Phi(z)
+    log_phi_z = np.log(np.maximum(Phi(z), 1e-300))
+    log_term2_abs = (np.log(np.maximum(np.abs(b), 1e-300))
+                     + math.log(SQRT2PI)
+                     - 1.5 * np.log(a)
+                     + 0.5 * z * z
+                     + log_phi_z)
+
+    sign_b = np.sign(b)
+
+    # log(term) via log-sum-exp when b >= 0, log-sub-exp when b < 0
+    log_term = np.where(
+        sign_b >= 0,
+        np.logaddexp(log_term1, log_term2_abs),
+        # b < 0: term = 1/a - |term2|; guaranteed positive by theory
+        log_term1 + np.log(np.maximum(
+            1.0 - np.exp(np.minimum(log_term2_abs - log_term1, 500)),
+            1e-300
+        ))
+    )
+
+    log_const = -math.log(2.0 * math.pi) - 0.5 * math.log(detS)
+    log_p = log_const - 0.5 * c + log_term
+
+    return log_p
+
+
+def p_theta_projected_normal(theta, mu, Sigma):
+    """
+    Angle density p_Theta(theta) for V ~ N(mu, Sigma) in R^2 (projected normal).
+    theta: array in [0,2pi). Sigma must be SPD-ish.
+    Returns p(theta) (not necessarily normalized unless you normalize in caller).
+
+    This is a convenience wrapper around log_p_theta_projected_normal.
+    """
+    return np.exp(log_p_theta_projected_normal(theta, mu, Sigma))
 
 def analytical_dcpa_prob_gt(x, mu_r, Sigma_r, mu_v, Sigma_v, Ktheta=248):
     """
@@ -121,12 +163,24 @@ def analytical_dcpa_prob_gt(x, mu_r, Sigma_r, mu_v, Sigma_v, Ktheta=248):
     theta = np.linspace(0.0, 2.0 * math.pi, int(Ktheta), endpoint=False)
     dtheta = 2.0 * math.pi / float(Ktheta)
 
-    pth = p_theta_projected_normal(theta, mu_v, Sigma_v)
-    pth_sum = float(np.sum(pth) * dtheta)
-    if pth_sum <= 0 or not np.isfinite(pth_sum):
-        pth = np.full_like(theta, 1.0 / (2.0 * math.pi))
+    # Log-space density and normalization to avoid underflow/overflow
+    # when velocity SNR is high (peaked p_Theta)
+    log_pth = log_p_theta_projected_normal(theta, mu_v, Sigma_v)
+    log_pth_max = np.max(log_pth)
+
+    if not np.isfinite(log_pth_max):
+        # Fallback: uniform weights that sum to 1
+        weights = np.full_like(theta, 1.0 / float(Ktheta))
     else:
-        pth = pth / pth_sum
+        # Normalize in log-space: w_k = exp(log_pth_k) / sum_j(exp(log_pth_j))
+        # so that sum(w_k) = 1  (a discrete probability distribution over theta)
+        log_pth_shifted = log_pth - log_pth_max
+        pth_shifted = np.exp(log_pth_shifted)
+        pth_sum_shifted = float(np.sum(pth_shifted))
+        if pth_sum_shifted <= 0:
+            weights = np.full_like(theta, 1.0 / float(Ktheta))
+        else:
+            weights = pth_shifted / pth_sum_shifted
 
     u_perp = np.stack([-np.sin(theta), np.cos(theta)], axis=0)  # (2,K)
 
@@ -140,7 +194,7 @@ def analytical_dcpa_prob_gt(x, mu_r, Sigma_r, mu_v, Sigma_v, Ktheta=248):
     cdf = np.clip(cdf, 0.0, 1.0)
 
     tail = 1.0 - cdf
-    p = float(np.sum(tail * pth) * dtheta)
+    p = float(np.sum(tail * weights))
     return float(np.clip(p, 0.0, 1.0))
 
 def analytical_past_cpa_prob(mu_rel, Sigma_rel, nu_rel, Sigma_nu, eps=1e-12):
