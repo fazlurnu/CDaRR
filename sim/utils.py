@@ -153,6 +153,7 @@ def get_configs(config_path: Union[str, Path] = "sim_configs/sim_config.json") -
     conflict_models = cfg["conflict_models"]
     detection_model = conflict_models["detection"]
     resolution_model = conflict_models["resolution"]
+    recovery_model = conflict_models["recovery"]
 
     # -------------------------------------------------
     # Apply BlueSky settings (must be after bs.init)
@@ -188,5 +189,6 @@ def get_configs(config_path: Union[str, Path] = "sim_configs/sim_config.json") -
         # Conflict models
         detection_model=detection_model,
         resolution_model=resolution_model,
+        recovery_model=recovery_model
     )
 
