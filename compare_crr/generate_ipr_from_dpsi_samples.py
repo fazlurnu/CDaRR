@@ -1,6 +1,5 @@
 from sim.pairwise_stochastic.run_multiple_jobs import run_multiple_jobs
 
-
 def generate_ipr_from_dpsi_samples(parameters):
     """Run simulations across all crossing angles for a given parameter set.
 
@@ -16,7 +15,7 @@ def generate_ipr_from_dpsi_samples(parameters):
     """
     results = {}
 
-    dpsi_list = list(range(2, 43, 2)) + list(range(45, 181, 5))
+    dpsi_list = list(range(2, 181, 2))
 
     for i, dpsi in enumerate(dpsi_list, 1):
         sim_results = run_multiple_jobs(
