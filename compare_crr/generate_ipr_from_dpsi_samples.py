@@ -16,11 +16,7 @@ def generate_ipr_from_dpsi_samples(parameters):
     """
     results = {}
 
-<<<<<<< HEAD
     dpsi_list = list(range(2, 43, 2)) + list(range(45, 181, 5))
-=======
-    dpsi_list = list(range(2, 181, 2))
->>>>>>> c842459 (modify variance)
 
     for i, dpsi in enumerate(dpsi_list, 1):
         sim_results = run_multiple_jobs(

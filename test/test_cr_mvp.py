@@ -148,7 +148,7 @@ while sim_timer_second < tmax:
         if sim_timer_second + eps >= next_event_t:
             # we add one to the lookahead time below so that the drone is iniated in conflict
             conf_detection.detect(states, states, horizontal_sep, 100, lookahead_time)
-            reso = conf_resolution.resolve(conf_detection, states, states)
+            reso = conf_resolution.resolve(conf_detection, states, states, bs.settings.asas_marh)
             reso_hdg, reso_spd, _, _, resopairs = reso
 
             # reso = None  # disable resolution for testing
@@ -158,7 +158,7 @@ while sim_timer_second < tmax:
         
         distance_ = pairwise.step(reso)
 
-        done_now = _check_tcpa_tinhor_per_pair(
+        done_now, _n_active = _check_tcpa_tinhor_per_pair(
                         bs.traf.id, conf_detection.tcpa_all, conf_detection.tinhor_all
                     )
 

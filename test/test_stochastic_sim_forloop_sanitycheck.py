@@ -192,7 +192,7 @@ def run_one_case(ci_pos: float, ci_vel: float, *, seed: int, do_plots: bool):
 
             # Detect + resolve (noisy)
             conf_detection.detect(ownship_obs, intruder_obs, horizontal_sep, 100.0, lookahead_time)
-            reso = conf_resolution.resolve(conf_detection, ownship_obs, intruder_obs)
+            reso = conf_resolution.resolve(conf_detection, ownship_obs, intruder_obs, bs.settings.asas_marh)
 
             # Ground-truth detect for termination metrics
             conf_detection_groundtruth.detect(states, states, horizontal_sep, 100.0, lookahead_time)

@@ -165,7 +165,7 @@ while sim_timer_second < tmax:
         conf_detection.detect(ownship_obs, intruder_obs, horizontal_sep, 100.0, lookahead_time)
         conf_detection_groundtruth.detect(states, states, horizontal_sep, 100.0, lookahead_time)
 
-        reso = conf_resolution.resolve(conf_detection, ownship_obs, intruder_obs)
+        reso = conf_resolution.resolve(conf_detection, ownship_obs, intruder_obs, bs.settings.asas_marh)
 
         # advance next_event_t exactly like you did
         missed = (
