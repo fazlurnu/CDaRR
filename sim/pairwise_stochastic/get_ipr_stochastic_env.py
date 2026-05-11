@@ -267,13 +267,8 @@ def get_ipr_stochastic_env(
                 asas_marh
             )
 
-<<<<<<< HEAD
-            conf_detection.sigma_r = ownship_adsl.pos_std + ownship_adsl.pos_std
-            conf_detection.sigma_v = ownship_adsl.vel_std + ownship_adsl.vel_std
-=======
             conf_detection.sigma_r = np.sqrt(ownship_adsl.pos_std**2 + intruder_adsl.pos_std**2)
             conf_detection.sigma_v = np.sqrt(ownship_adsl.vel_std**2 + intruder_adsl.vel_std**2)
->>>>>>> c842459 (modify variance)
             conf_detection.dcpa_prob_threshold = threshold_probability
 
             delpairs_noise = conf_recovery(conf_resolution, conf_detection, ownship_adsl, intruder_adsl)
@@ -319,8 +314,6 @@ def get_ipr_stochastic_env(
     # ----------------------------
     pairwise.reset()
     distance_array, ipr = _compute_ipr(distance_array, pairwise.nb_pair, cfg.horizontal_sep)
-<<<<<<< HEAD
-=======
 
     return distance_array, ipr, sim_timer, n_active
 
@@ -505,6 +498,5 @@ def get_ipr_stochastic_env_randomized(
     # ----------------------------
     pairwise.reset()
     distance_array, ipr = _compute_ipr(distance_array, pairwise.nb_pair, cfg.horizontal_sep)
->>>>>>> c842459 (modify variance)
 
     return distance_array, ipr, sim_timer, n_active
