@@ -16,28 +16,28 @@ import os
 import json
 from types import SimpleNamespace
 
-from compare_crr.generate_ipr_from_dpsi_samples import generate_ipr_from_dpsi_samples
+from compare_crr.generate_ipr_from_random_dpsi import generate_ipr_from_random_dpsi
 from compare_crr.utils import to_python, build_output_path
 
 # ---------------------------------------------------------
 # Experiment definitions
 # ---------------------------------------------------------
-CONFIG_PATH = "sim_configs/sim_config.json"
+CONFIG_PATH = "sim_configs/sim_config_ultimate200.json"
 
 EXPERIMENTS = [
+    # {
+    #     "recovery_models": ["Probabilistic FTR"],
+    #     "ci_list": [3, 10],
+    #     "civ_list": [1, 3],
+    #     "gamma_list": [0.999],
+    #     "output_dir_template": "results/tests_tin_1.5tlookahead_ulti200_gamma{gamma}",
+    # },
     {
         "recovery_models": ["CPA", "FTR"],
         "ci_list": [3, 10],
         "civ_list": [1, 3],
         "gamma_list": [None],
-        "output_dir": "results/tests_tin_1.5tlookahead_fulldpsi",
-    },
-    {
-        "recovery_models": ["Probabilistic FTR"],
-        "ci_list": [3, 10],
-        "civ_list": [1, 3],
-        "gamma_list": [0.999, 0.99, 0.9, 0.75, 0.5],
-        "output_dir_template": "results/tests_tin_1.5tlookahead_fulldpsi_gamma{gamma}",
+        "output_dir": "results/tests_tin_1.5tlookahead_ulti200",
     },
 ]
 
@@ -84,7 +84,7 @@ def run_experiments():
                             recovery_model=recovery_model,
                         )
 
-                        results = generate_ipr_from_dpsi_samples(params)
+                        results = generate_ipr_from_random_dpsi(params)
                         results_clean = to_python(results)
 
                         os.makedirs(output_dir, exist_ok=True)
