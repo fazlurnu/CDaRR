@@ -26,15 +26,18 @@ print("Worst CPA array:", results["worst_cpa"])
 print("Sim timer array:", results["sim_timer"])
 print("N active conflict:", results["n_active_conflict"])
 
-unique_worst_cpa = np.unique(results["worst_cpa"])
-assert len(results["worst_cpa"]) == len(unique_worst_cpa), (
-    f"Duplicate values found in worst_cpa: {unique_worst_cpa}"
+worst_cpa = np.asarray(results["worst_cpa"])
+# One worst-CPA value per run (min across that run's pairs)
+worst_per_run = worst_cpa.min(axis=1) if worst_cpa.ndim > 1 else worst_cpa
+unique_worst_per_run = np.unique(worst_per_run)
+assert len(worst_per_run) == len(unique_worst_per_run), (
+    f"Duplicate per-run worst CPA values found: {worst_per_run}"
 )
 
-min_allowed_cpa = 2.0 * cfg.horizontal_sep
-assert np.all(results["worst_cpa"] <= min_allowed_cpa), (
-    f"Some worst_cpa values violate separation constraint. "
-    f"Minimum allowed: {min_allowed_cpa}, "
+max_allowed_cpa = 2.0 * cfg.horizontal_sep
+assert np.all(worst_cpa <= max_allowed_cpa), (
+    f"Some worst_cpa values exceed the expected upper bound. "
+    f"Maximum allowed: {max_allowed_cpa}, "
     f"Found: {results['worst_cpa']}"
 )
 

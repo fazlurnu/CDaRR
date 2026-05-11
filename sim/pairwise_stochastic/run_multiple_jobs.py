@@ -12,9 +12,6 @@ from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_en
 # Number of independent conflict pairs per simulation run
 NB_PAIR = 100
 
-# Number of independent conflict pairs per simulation run
-NB_PAIR = 100
-
 
 def _run_one(
     rep: int, base_seed: int, kwargs: Dict[str, Any]
@@ -30,8 +27,9 @@ def _run_one(
     """
     seed = base_seed + rep
 
-    # take the kwargs here, randomized_speed_heading is only used in get_ipr_stochastic_env_randomized, so it will be ignored if not present
-    if(kwargs.get("randomized_speed_heading", False)):
+    kwargs = dict(kwargs)
+    randomized = kwargs.pop("randomized_speed_heading", False)
+    if randomized:
         distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env_randomized(seed=seed, **kwargs)
     else:
         distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env(seed=seed, **kwargs)

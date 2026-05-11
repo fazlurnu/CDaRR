@@ -8,10 +8,11 @@ class ADSL():
     
     """
     def __init__(self, confidence_interval, confidence_interval_velo,
-                 reception_prob = 1.0):
+                 reception_prob = 1.0, seed=None):
         # Calculate standard deviation from confidence interval
         # For 2D, 95% confidence interval is approximately 2.448 standard deviations
         self.reception_prob = reception_prob
+        self.rng = np.random.default_rng(seed)
 
         self.std_dev = confidence_interval / 2.448
         self.velo_std_dev = confidence_interval_velo / 2.448
@@ -77,7 +78,7 @@ class ADSL():
                         [0.0, self.std_dev**2]])
 
         # draw len(update_idx) samples at once: shape (K, 2)
-        xy = np.random.multivariate_normal((0.0, 0.0), cov, size=len(update_idx))
+        xy = self.rng.multivariate_normal((0.0, 0.0), cov, size=len(update_idx))
         x = xy[:, 0]
         y = xy[:, 1]
 
@@ -100,18 +101,18 @@ class ADSL():
         if update_array is not None:
             idx = update_array[0] if isinstance(update_array, tuple) else update_array
 
-            vx_noise, vy_noise = np.random.multivariate_normal((0, 0), cov_velo, len(idx)).T
+            vx_noise, vy_noise = self.rng.multivariate_normal((0, 0), cov_velo, len(idx)).T
 
             self.gsnorth[idx] = self.gs[idx] * np.cos(np.deg2rad(self.trk[idx])) + vx_noise
             self.gseast[idx]  = self.gs[idx] * np.sin(np.deg2rad(self.trk[idx])) + vy_noise
         else:
-            vx_noise, vy_noise = np.random.multivariate_normal((0, 0), cov_velo, self.ntraf).T
+            vx_noise, vy_noise = self.rng.multivariate_normal((0, 0), cov_velo, self.ntraf).T
             self.gsnorth = self.gs * np.cos(np.deg2rad(self.trk)) + vx_noise
             self.gseast  = self.gs * np.sin(np.deg2rad(self.trk)) + vy_noise
     
     def _get_noisy_states(self, states):
         ## Still buggy the update_prob_cond, actually require the comm uncertainty to be assymetrical
-        update_prob_cond = (np.random.random(size = states.ntraf) <= self.reception_prob)
+        update_prob_cond = (self.rng.random(size = states.ntraf) <= self.reception_prob)
         up = np.where(update_prob_cond)
         
         if not self.first_update_done:

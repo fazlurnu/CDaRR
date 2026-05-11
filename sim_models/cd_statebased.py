@@ -57,8 +57,8 @@ class StateBased():
 
         # Intruder track angle and speed
         inttrkrad = np.radians(intruder.trk)
-        intu = intruder.gs * np.sin(inttrkrad).reshape((1, ownship.ntraf))  # m/s
-        intv = intruder.gs * np.cos(inttrkrad).reshape((1, ownship.ntraf))  # m/s
+        intu = intruder.gs * np.sin(inttrkrad).reshape((1, intruder.ntraf))  # m/s
+        intv = intruder.gs * np.cos(inttrkrad).reshape((1, intruder.ntraf))  # m/s
 
         du = ownu - intu.T  # Speed du[i,j] is perceived eastern speed of i to j
         dv = ownv - intv.T  # Speed dv[i,j] is perceived northern speed of i to j
@@ -93,10 +93,10 @@ class StateBased():
 
         # Vertical crossing of disk (-dh,+dh)
         dalt = ownship.alt.reshape((1, ownship.ntraf)) - \
-            intruder.alt.reshape((1, ownship.ntraf)).T  + 1e9 * I
+            intruder.alt.reshape((1, intruder.ntraf)).T  + 1e9 * I
 
         dvs = ownship.vs.reshape(1, ownship.ntraf) - \
-            intruder.vs.reshape(1, ownship.ntraf).T
+            intruder.vs.reshape(1, intruder.ntraf).T
         dvs = np.where(np.abs(dvs) < 1e-6, 1e-6, dvs)  # prevent division by zero
 
         # Check for passing through each others zone

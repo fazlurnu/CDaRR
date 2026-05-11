@@ -365,14 +365,15 @@ def get_ipr_stochastic_env_randomized(
     # ----------------------------
     # Environment
     # ----------------------------
+    scenario_rng = np.random.default_rng(seed + 7919)
     pairwise = PairwiseHorConflict(
         pair_width=cfg.width,
         pair_height=cfg.height,
         asas_pzr_m=cfg.horizontal_sep,
         dtlookahead=lookahead_time * 1.5,
-        init_speed_ownship=np.random.uniform(10, 30),  # Randomize initial speed for ownship
-        init_speed_intruder=np.random.uniform(10, 30),  # Randomize initial speed for ownship
-        init_dpsi=np.random.uniform(0, 360),  # Randomize initial dpsi
+        init_speed_ownship=float(scenario_rng.uniform(10, 30)),
+        init_speed_intruder=float(scenario_rng.uniform(10, 30)),
+        init_dpsi=float(scenario_rng.uniform(0, 360)),
         aircraft_type_ownship=cfg.aircraft_type,
         simdt_factor=cfg.SIMDT_FACTOR,
     )
