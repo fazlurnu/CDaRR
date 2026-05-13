@@ -18,7 +18,7 @@ import numpy as np
 import bluesky as bs
 
 from sim_models.cd_statebased import StateBased
-from envs.pairwise_conflict import PairwiseHorConflict
+from envs.pairwise_conflict import PairwiseHorConflict, PairwiseHorConflictDist
 from sim_models.cr_mvp import MVP
 from sim_models.cr_vo import VO
 from sim_models.adsl_module import ADSL
@@ -500,4 +500,147 @@ def get_ipr_stochastic_env_randomized(
     pairwise.reset()
     distance_array, ipr = _compute_ipr(distance_array, pairwise.nb_pair, cfg.horizontal_sep)
 
+    return distance_array, ipr, sim_timer, n_active
+
+
+def get_ipr_stochastic_env_dist(
+    confidence_interval: float,
+    confidence_interval_velo: float,
+    reception_prob: float,
+    dist_m: float,
+    asas_marh: float = 1.0,
+    lookahead_time: float = 300.0,
+    tmax: float = 1200.0,
+    seed: int = 44,
+    config_path: str = None,
+    threshold_probability: float = None,
+    resolution_model: str = None,
+    recovery_model: str = None,
+):
+    """
+    Stochastic pairwise conflict simulation with ASAS margin fixed at 1.0
+    and intruders placed at a given initial distance.
+
+    Per-pair randomization (seeded):
+      - dpsi:            uniform 0-360 deg
+      - ownship speed:   uniform 15-35 kts (7.72-18.01 m/s)
+      - intruder speed:  uniform 15-35 kts (7.72-18.01 m/s)
+      - dcpa:            uniform 0-RPZ (50 m)
+
+    Parameters
+    ----------
+    confidence_interval      : position uncertainty (m)
+    confidence_interval_velo : velocity uncertainty (m/s)
+    reception_prob           : ADSL reception probability
+    dist_m                   : initial separation distance at conflict creation (m)
+    lookahead_time           : CDR lookahead horizon (s), default 300
+    resolution_model         : override config resolution model ("MVP" or "VO")
+    recovery_model           : override config recovery model ("CPA", "FTR", "Probabilistic FTR")
+    """
+    cfg = get_configs(config_path) if config_path else get_configs()
+    if resolution_model is not None:
+        cfg.resolution_model = resolution_model
+    if recovery_model is not None:
+        cfg.recovery_model = recovery_model
+
+    bs.settings.asas_marh = asas_marh
+
+    conf_detection, conf_detection_gt, conf_resolution, conf_recovery = _create_cdr_models(cfg)
+
+    scenario_rng = np.random.default_rng(seed + 7919)
+    dist_nm = dist_m / 1852.0
+    pairwise = PairwiseHorConflictDist(
+        pair_width=cfg.width,
+        pair_height=cfg.height,
+        asas_pzr_m=cfg.horizontal_sep,
+        dtlookahead=lookahead_time * 1.5,
+        dist_nm=dist_nm,
+        aircraft_type_ownship=cfg.aircraft_type,
+        speed_range=(7.7167, 18.0056),  # 15–35 kts in m/s
+        dcpa_range_m=(0.0, cfg.horizontal_sep),
+        simdt_factor=cfg.SIMDT_FACTOR,
+        rng=scenario_rng,
+    )
+
+    simdt = bs.settings.simdt * cfg.SIMDT_FACTOR
+
+    adsl_bus, ownship_adsl, intruder_adsl, prev_intruder_adsl = _create_adsl_stack(
+        confidence_interval, confidence_interval_velo, reception_prob, seed
+    )
+
+    sim_timer = 0.0
+    next_event_t = 0.0
+    event_dt = float(bs.settings.asas_dt)
+    eps = np.finfo(float).eps * 100
+
+    distance_array = []
+    done_start_time = None
+    initialized = False
+
+    while sim_timer < tmax:
+        states = pairwise._get_states()
+        n = int(states.ntraf)
+
+        if not initialized:
+            ownship_adsl.update_from_truth(states)
+            adsl_bus.send_data(intruder_adsl, ownship_adsl, indices=None)
+            adsl_bus.send_data(prev_intruder_adsl, intruder_adsl, indices=None)
+            initialized = True
+
+        if sim_timer + eps >= next_event_t:
+            ownship_adsl.update_from_truth(states)
+
+            idx_rx = intruder_adsl.reception.sample_indices(n)
+            rx_mask = np.zeros(n, dtype=bool)
+            rx_mask[idx_rx] = True
+            idx_miss = np.where(~rx_mask)[0]
+
+            if idx_rx.size > 0:
+                adsl_bus.send_data(intruder_adsl, ownship_adsl, indices=idx_rx)
+            if idx_miss.size > 0:
+                adsl_bus.send_data(intruder_adsl, prev_intruder_adsl, indices=idx_miss)
+            adsl_bus.send_data(prev_intruder_adsl, intruder_adsl, indices=None)
+
+            conf_detection.detect(ownship_adsl, intruder_adsl, cfg.horizontal_sep, 100.0, lookahead_time)
+            conf_detection_gt.detect(states, states, cfg.horizontal_sep, 100.0, lookahead_time)
+
+            reso = conf_resolution.resolve(conf_detection, ownship_adsl, intruder_adsl, asas_marh)
+
+            conf_detection.sigma_r = np.sqrt(ownship_adsl.pos_std**2 + intruder_adsl.pos_std**2)
+            conf_detection.sigma_v = np.sqrt(ownship_adsl.vel_std**2 + intruder_adsl.vel_std**2)
+            if threshold_probability is not None:
+                conf_detection.dcpa_prob_threshold = threshold_probability
+
+            conf_recovery(conf_resolution, conf_detection, ownship_adsl, intruder_adsl)
+
+            missed = (
+                int(np.floor((sim_timer - next_event_t) / event_dt)) + 1
+                if sim_timer > next_event_t
+                else 1
+            )
+            next_event_t += missed * event_dt
+
+        dist = pairwise.step(reso)
+        distance_array.append(dist)
+
+        done_now, is_active = _check_tcpa_tinhor_per_pair(
+            bs.traf.id,
+            conf_detection_gt.tcpa_all,
+            conf_detection_gt.tinhor_all,
+        )
+
+        dist_hist = np.asarray(distance_array)
+        min_dist_so_far = np.min(dist_hist, axis=0)
+        n_active = int(np.sum(is_active & (min_dist_so_far > cfg.horizontal_sep)))
+
+        done_start_time, should_stop = done_with_timeout(
+            done_now, done_start_time, sim_timer, cfg.DONE_TIMEOUT, verbose=False
+        )
+        if should_stop:
+            break
+
+        sim_timer += simdt
+
+    pairwise.reset()
+    distance_array, ipr = _compute_ipr(distance_array, pairwise.nb_pair, cfg.horizontal_sep)
     return distance_array, ipr, sim_timer, n_active

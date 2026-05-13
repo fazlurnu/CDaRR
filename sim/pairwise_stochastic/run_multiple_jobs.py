@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Tuple
 
 from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_env
 from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_env_randomized
+from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_env_dist
 
 # Number of independent conflict pairs per simulation run
 NB_PAIR = 100
@@ -29,7 +30,10 @@ def _run_one(
 
     kwargs = dict(kwargs)
     randomized = kwargs.pop("randomized_speed_heading", False)
-    if randomized:
+    dist_mode  = kwargs.pop("dist_mode", False)
+    if dist_mode:
+        distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env_dist(seed=seed, **kwargs)
+    elif randomized:
         distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env_randomized(seed=seed, **kwargs)
     else:
         distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env(seed=seed, **kwargs)
