@@ -33,6 +33,8 @@ class ADSL:
         confidence_interval_velo: float,
         reception_prob: float = 1.0,
         seed: Optional[int] = None,
+        pos_dist: Any = None,
+        latency_s: float = 0.0,
     ):
         self.rng = np.random.default_rng(seed)
 
@@ -44,7 +46,13 @@ class ADSL:
 
         self.msg = ADSLMessage()
         self.reception = ReceptionModel(reception_prob=reception_prob, rng=self.rng)
-        self.noise = NoiseModel(pos_std_m=pos_std, vel_std_ms=vel_std, rng=self.rng)
+        self.noise = NoiseModel(
+            pos_std_m=pos_std,
+            vel_std_ms=vel_std,
+            rng=self.rng,
+            pos_dist=pos_dist,
+            latency_s=latency_s,
+        )
 
         self.first_update_done = False
 

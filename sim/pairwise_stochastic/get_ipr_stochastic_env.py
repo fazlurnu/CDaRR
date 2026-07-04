@@ -74,13 +74,21 @@ def _create_cdr_models(cfg):
     return detection, detection_gt, resolution, recovery
 
 
-def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_prob, seed):
-    """Create the four ADSL nodes (bus, ownship, intruder, prev_intruder)."""
+def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_prob, seed,
+                       pos_dist=None, latency_s=0.0):
+    """Create the four ADSL nodes (bus, ownship, intruder, prev_intruder).
+
+    ``pos_dist`` / ``latency_s`` select the position noise model (exp3/exp4
+    noise-model sweep) and are forwarded to every node; only ``ownship_adsl``
+    actually injects noise via ``update_from_truth`` in the simulation loop.
+    """
     adsl_bus = ADSL(
         confidence_interval,
         confidence_interval_velo,
         reception_prob=1.0,
         seed=seed + 1,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
     )
 
     ownship_adsl = ADSL(
@@ -88,6 +96,8 @@ def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_
         confidence_interval_velo,
         reception_prob=1.0,
         seed=seed + 2,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
     )
 
     intruder_adsl = ADSL(
@@ -95,6 +105,8 @@ def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_
         confidence_interval_velo,
         reception_prob=reception_prob,
         seed=seed + 3,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
     )
 
     prev_intruder_adsl = ADSL(
@@ -102,6 +114,8 @@ def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_
         confidence_interval_velo,
         reception_prob=1.0,
         seed=seed + 4,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
     )
 
     rx_rng = np.random.default_rng(seed + 999)
@@ -145,6 +159,10 @@ def get_ipr_stochastic_env(
     config_path: str = None,
     threshold_probability: float = None,
     recovery_model: str = None,
+    pos_dist=None,
+    latency_s: float = 0.0,
+    init_speed_ownship: float = None,
+    init_speed_intruder: float = None,
 ):
     """
     Run a stochastic pairwise conflict simulation and compute IPR.
@@ -154,6 +172,16 @@ def get_ipr_stochastic_env(
     recovery_model : str, optional
         If provided, overrides the recovery model from the config file.
         Valid values: "CPA", "FTR", "Probabilistic FTR".
+    pos_dist : callable, optional
+        Position noise distribution ``(n, ci95, rng) -> (n, 2)`` in metres.
+        ``None`` (default) uses the 2D-Gaussian model. See
+        ``sim_models.noise_distributions`` (e.g. ``make_mixture_gaussian``).
+    latency_s : float, optional
+        ADS-B reporting latency in seconds; adds an along-track position bias
+        of ``-latency_s * gs``. ``0.0`` (default) disables it.
+    init_speed_ownship, init_speed_intruder : float, optional
+        Override the initial aircraft speeds (m/s). ``None`` uses the config
+        values. Used by exp3/exp4 to inject per-run speeds.
 
     Returns
     -------
@@ -186,8 +214,8 @@ def get_ipr_stochastic_env(
         pair_height=cfg.height,
         asas_pzr_m=cfg.horizontal_sep,
         dtlookahead=lookahead_time * 1.5,
-        init_speed_ownship=cfg.init_speed_ownship,
-        init_speed_intruder=cfg.init_speed_intruder,
+        init_speed_ownship=cfg.init_speed_ownship if init_speed_ownship is None else init_speed_ownship,
+        init_speed_intruder=cfg.init_speed_intruder if init_speed_intruder is None else init_speed_intruder,
         init_dpsi=dpsi,
         aircraft_type_ownship=cfg.aircraft_type,
         simdt_factor=cfg.SIMDT_FACTOR,
@@ -200,7 +228,8 @@ def get_ipr_stochastic_env(
     # ADSL setup
     # ----------------------------
     adsl_bus, ownship_adsl, intruder_adsl, prev_intruder_adsl = _create_adsl_stack(
-        confidence_interval, confidence_interval_velo, reception_prob, seed
+        confidence_interval, confidence_interval_velo, reception_prob, seed,
+        pos_dist=pos_dist, latency_s=latency_s,
     )
 
     # ----------------------------
