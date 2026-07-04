@@ -7,6 +7,10 @@ import numpy as np
 from typing import Dict, Any, List, Tuple
 
 from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_env
+from sim.pairwise_stochastic.get_ipr_stochastic_env import get_ipr_stochastic_env_randomized
+
+# Number of independent conflict pairs per simulation run
+NB_PAIR = 100
 
 
 def _run_one(
@@ -23,11 +27,16 @@ def _run_one(
     """
     seed = base_seed + rep
 
-    distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env(seed=seed, **kwargs)
+    # take the kwargs here, randomized_speed_heading is only used in get_ipr_stochastic_env_randomized, so it will be ignored if not present
+    if(kwargs.get("randomized_speed_heading", False)):
+        distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env_randomized(seed=seed, **kwargs)
+    else:
+        distance_array, ipr, sim_timer, n_active_conflict = get_ipr_stochastic_env(seed=seed, **kwargs)
+
 
     # Worst CPA over all pairs
     min_dist_per_pair = np.min(distance_array, axis=0)
-    worst_cpa = float(np.min(min_dist_per_pair))
+    worst_cpa = np.round(min_dist_per_pair, 3)
 
     return float(ipr), worst_cpa, float(sim_timer), int(n_active_conflict)
 
@@ -57,16 +66,14 @@ def run_multiple_jobs(
         for rep in range(n_runs)
     )
 
-    # here we assume the nb of pair is always 100 per run
-    # we use that number to recompute the ipr for the whole run
-    # mean of IPR is not the IPR of the whole run
-
+    # Recompute overall IPR across all runs (mean of per-run IPR is not correct
+    # because each run has NB_PAIR pairs and LOS counts must be aggregated)
     ipr_arr, worst_cpa_arr, sim_timer_arr, n_active_conflict_arr = map(
         np.array, zip(*results)
     )
 
-    n_los = np.sum((1.0 - ipr_arr) * 100.0)
-    overall_ipr = 1.0 - (n_los / float(n_runs * 100.0))
+    n_los = np.sum((1.0 - ipr_arr) * NB_PAIR)
+    overall_ipr = 1.0 - (n_los / float(n_runs * NB_PAIR))
 
     return {
         "overall_ipr": overall_ipr,
@@ -79,17 +86,20 @@ def run_multiple_jobs(
 
 if __name__ == "__main__":
     # Example usage
+    print("Run!")
+
     results = run_multiple_jobs(
-        n_runs=12,
-        n_jobs=4,
-        asas_marh=1.2,
-        confidence_interval=42.3,
-        confidence_interval_velo=5.0,
-        reception_prob=0.95,
-        lookahead_time=15,
-        dpsi=45,
+        n_runs=100,
+        n_jobs=100,
+        asas_marh=1.05,
+        confidence_interval=10,
+        confidence_interval_velo=1,
+        reception_prob=1.0,
+        lookahead_time=300,
+        dpsi=0.18,
+        config_path="sim_configs/sim_config.json",
+        recovery_model="Probabilistic FTR",
+        threshold_probability=0.5
     )
 
-    print("Overall IPR", results["overall_ipr:"])
-    print("Worst CPA array:", results["worst_cpa"])
-    print("Sim timer array:", results["sim_timer"])
+    print("Overall IPR", results["overall_ipr"])

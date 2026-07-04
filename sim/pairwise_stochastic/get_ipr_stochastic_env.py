@@ -23,6 +23,9 @@ from sim_models.cr_mvp import MVP
 from sim_models.cr_vo import VO
 from sim_models.adsl_module import ADSL
 from sim_models.reception_model import ReceptionModel
+from sim_models.crr_resumenav_cpa import resumenav as resumenav_cpa
+from sim_models.crr_resumenav_ftr import resumenav_double_criteria
+from sim_models.crr_resumenav_probabilistic_ftr import resumenav_probabilistic_ftr
 
 from sim.utils import (
     _check_tcpa_tinhor_per_pair,
@@ -41,6 +44,108 @@ if not getattr(bs, "_joblib_inited", False):
 
 
 # ---------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------
+_RECOVERY_MODELS = {
+    "CPA": resumenav_cpa,
+    "FTR": resumenav_double_criteria,
+    "Probabilistic FTR": resumenav_probabilistic_ftr,
+}
+
+_RESOLUTION_MODELS = {
+    "MVP": MVP,
+    "VO": VO,
+}
+
+
+def _create_cdr_models(cfg):
+    """Create conflict detection, resolution, and recovery model instances."""
+    detection = StateBased()
+    detection_gt = StateBased()
+
+    if cfg.resolution_model not in _RESOLUTION_MODELS:
+        raise ValueError(f"Unsupported resolution model: {cfg.resolution_model}")
+    resolution = _RESOLUTION_MODELS[cfg.resolution_model]()
+
+    if cfg.recovery_model not in _RECOVERY_MODELS:
+        raise ValueError(f"Unsupported recovery model: {cfg.recovery_model}")
+    recovery = _RECOVERY_MODELS[cfg.recovery_model]
+
+    return detection, detection_gt, resolution, recovery
+
+
+def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_prob, seed,
+                       pos_dist=None, latency_s=0.0):
+    """Create the four ADSL nodes (bus, ownship, intruder, prev_intruder).
+
+    ``pos_dist`` / ``latency_s`` select the position noise model (exp3/exp4
+    noise-model sweep) and are forwarded to every node; only ``ownship_adsl``
+    actually injects noise via ``update_from_truth`` in the simulation loop.
+    """
+    adsl_bus = ADSL(
+        confidence_interval,
+        confidence_interval_velo,
+        reception_prob=1.0,
+        seed=seed + 1,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
+    )
+
+    ownship_adsl = ADSL(
+        confidence_interval,
+        confidence_interval_velo,
+        reception_prob=1.0,
+        seed=seed + 2,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
+    )
+
+    intruder_adsl = ADSL(
+        confidence_interval,
+        confidence_interval_velo,
+        reception_prob=reception_prob,
+        seed=seed + 3,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
+    )
+
+    prev_intruder_adsl = ADSL(
+        confidence_interval,
+        confidence_interval_velo,
+        reception_prob=1.0,
+        seed=seed + 4,
+        pos_dist=pos_dist,
+        latency_s=latency_s,
+    )
+
+    rx_rng = np.random.default_rng(seed + 999)
+    intruder_adsl.reception = ReceptionModel(
+        reception_prob=reception_prob,
+        rng=rx_rng,
+    )
+
+    return adsl_bus, ownship_adsl, intruder_adsl, prev_intruder_adsl
+
+
+def _compute_ipr(distance_array, nb_pair, horizontal_sep):
+    """Compute IPR from the distance history.
+
+    Returns
+    -------
+    distance_array : np.ndarray, shape (T, nb_pair)
+    ipr : float
+    """
+    distance_array = np.asarray(distance_array)[:, :nb_pair]
+    min_dist = np.min(distance_array, axis=0)
+
+    n_los = int(np.sum(min_dist < horizontal_sep))
+    n_conflict = int(nb_pair)
+
+    ipr = 1.0 - (n_los / float(n_conflict))
+    return distance_array, ipr
+
+
+# ---------------------------------------------------------
 # Main API
 # ---------------------------------------------------------
 def get_ipr_stochastic_env(
@@ -51,9 +156,32 @@ def get_ipr_stochastic_env(
     lookahead_time: float,
     dpsi: float,
     seed: int = 44,
+    config_path: str = None,
+    threshold_probability: float = None,
+    recovery_model: str = None,
+    pos_dist=None,
+    latency_s: float = 0.0,
+    init_speed_ownship: float = None,
+    init_speed_intruder: float = None,
 ):
     """
     Run a stochastic pairwise conflict simulation and compute IPR.
+
+    Parameters
+    ----------
+    recovery_model : str, optional
+        If provided, overrides the recovery model from the config file.
+        Valid values: "CPA", "FTR", "Probabilistic FTR".
+    pos_dist : callable, optional
+        Position noise distribution ``(n, ci95, rng) -> (n, 2)`` in metres.
+        ``None`` (default) uses the 2D-Gaussian model. See
+        ``sim_models.noise_distributions`` (e.g. ``make_mixture_gaussian``).
+    latency_s : float, optional
+        ADS-B reporting latency in seconds; adds an along-track position bias
+        of ``-latency_s * gs``. ``0.0`` (default) disables it.
+    init_speed_ownship, init_speed_intruder : float, optional
+        Override the initial aircraft speeds (m/s). ``None`` uses the config
+        values. Used by exp3/exp4 to inject per-run speeds.
 
     Returns
     -------
@@ -64,92 +192,44 @@ def get_ipr_stochastic_env(
     """
 
     # ----------------------------
-    # Load config defaults
+    # Load config
     # ----------------------------
-    cfg = get_configs()
+    cfg = get_configs(config_path) if config_path else get_configs()
 
-    width = cfg.width
-    height = cfg.height
-    horizontal_sep = cfg.horizontal_sep
-    init_speed_ownship = cfg.init_speed_ownship
-    init_speed_intruder = cfg.init_speed_intruder
-    aircraft_type = cfg.aircraft_type
-    SIMDT_FACTOR = cfg.SIMDT_FACTOR
-    DONE_TIMEOUT = cfg.DONE_TIMEOUT
+    if recovery_model is not None:
+        cfg.recovery_model = recovery_model
 
-    # Override ASAS margin
     bs.settings.asas_marh = asas_marh
 
     # ----------------------------
-    # Conflict detection / resolution
+    # CDR models
     # ----------------------------
-    conf_detection = StateBased()
-    conf_detection_gt = StateBased()
-
-    if cfg.resolution_model == "MVP":
-        conf_resolution = MVP()
-    elif cfg.resolution_model == "VO":
-        conf_resolution = VO()
-    else:
-        raise ValueError(f"Unsupported resolution model: {cfg.resolution_model}")
+    conf_detection, conf_detection_gt, conf_resolution, conf_recovery = _create_cdr_models(cfg)
 
     # ----------------------------
     # Environment
     # ----------------------------
     pairwise = PairwiseHorConflict(
-        pair_width=width,
-        pair_height=height,
-        asas_pzr_m=horizontal_sep,
-        dtlookahead=lookahead_time + 1,
-        init_speed_ownship=init_speed_ownship,
-        init_speed_intruder=init_speed_intruder,
+        pair_width=cfg.width,
+        pair_height=cfg.height,
+        asas_pzr_m=cfg.horizontal_sep,
+        dtlookahead=lookahead_time * 1.5,
+        init_speed_ownship=cfg.init_speed_ownship if init_speed_ownship is None else init_speed_ownship,
+        init_speed_intruder=cfg.init_speed_intruder if init_speed_intruder is None else init_speed_intruder,
         init_dpsi=dpsi,
-        aircraft_type_ownship=aircraft_type,
-        simdt_factor=SIMDT_FACTOR,
+        aircraft_type_ownship=cfg.aircraft_type,
+        simdt_factor=cfg.SIMDT_FACTOR,
     )
 
-    simdt = bs.settings.simdt * SIMDT_FACTOR
-    
-    # the simulation should not run for more than 5 minutes
-    # if it runs for more than 5 mins, that means the conflict
-    # cannot be solved in time
-    tmax = min(lookahead_time * cfg.tmax_factor, 300.0)
+    simdt = bs.settings.simdt * cfg.SIMDT_FACTOR
+    tmax = 600
 
     # ----------------------------
     # ADSL setup
     # ----------------------------
-    adsl_bus = ADSL(
-        confidence_interval,
-        confidence_interval_velo,
-        reception_prob=1.0,
-        seed=seed + 1,
-    )
-
-    ownship_adsl = ADSL(
-        confidence_interval,
-        confidence_interval_velo,
-        reception_prob=1.0,
-        seed=seed + 2,
-    )
-
-    intruder_adsl = ADSL(
-        confidence_interval,
-        confidence_interval_velo,
-        reception_prob=reception_prob,
-        seed=seed + 3,
-    )
-
-    prev_intruder_adsl = ADSL(
-        confidence_interval,
-        confidence_interval_velo,
-        reception_prob=1.0,
-        seed=seed + 4,
-    )
-
-    rx_rng = np.random.default_rng(seed + 999)
-    intruder_adsl.reception = ReceptionModel(
-        reception_prob=reception_prob,
-        rng=rx_rng,
+    adsl_bus, ownship_adsl, intruder_adsl, prev_intruder_adsl = _create_adsl_stack(
+        confidence_interval, confidence_interval_velo, reception_prob, seed,
+        pos_dist=pos_dist, latency_s=latency_s,
     )
 
     # ----------------------------
@@ -196,7 +276,7 @@ def get_ipr_stochastic_env(
             conf_detection.detect(
                 ownship_adsl,
                 intruder_adsl,
-                horizontal_sep,
+                cfg.horizontal_sep,
                 100.0,
                 lookahead_time,
             )
@@ -204,7 +284,7 @@ def get_ipr_stochastic_env(
             conf_detection_gt.detect(
                 states,
                 states,
-                horizontal_sep,
+                cfg.horizontal_sep,
                 100.0,
                 lookahead_time,
             )
@@ -215,6 +295,12 @@ def get_ipr_stochastic_env(
                 intruder_adsl,
                 asas_marh
             )
+
+            conf_detection.sigma_r = np.sqrt(ownship_adsl.pos_std**2 + intruder_adsl.pos_std**2)
+            conf_detection.sigma_v = np.sqrt(ownship_adsl.vel_std**2 + intruder_adsl.vel_std**2)
+            conf_detection.dcpa_prob_threshold = threshold_probability
+
+            delpairs_noise = conf_recovery(conf_resolution, conf_detection, ownship_adsl, intruder_adsl)
 
             missed = (
                 int(np.floor((sim_timer - next_event_t) / event_dt)) + 1
@@ -234,7 +320,6 @@ def get_ipr_stochastic_env(
             conf_detection_gt.tinhor_all,
         )
 
-        # n_active: active conflicts whose minimum distance so far is still > 50 m
         dist_hist = np.asarray(distance_array)
         min_dist_so_far = np.min(dist_hist, axis=0)
 
@@ -244,7 +329,7 @@ def get_ipr_stochastic_env(
             done_now,
             done_start_time,
             sim_timer,
-            DONE_TIMEOUT,
+            cfg.DONE_TIMEOUT,
             verbose=False,
         )
 
@@ -254,19 +339,193 @@ def get_ipr_stochastic_env(
         sim_timer += simdt
 
     # ----------------------------
-    # Cleanup
+    # Cleanup & compute IPR
     # ----------------------------
     pairwise.reset()
+    distance_array, ipr = _compute_ipr(distance_array, pairwise.nb_pair, cfg.horizontal_sep)
+
+    return distance_array, ipr, sim_timer, n_active
+
+def get_ipr_stochastic_env_randomized(
+    asas_marh: float,
+    confidence_interval: float,
+    confidence_interval_velo: float,
+    reception_prob: float,
+    lookahead_time: float,
+    dpsi: float,
+    seed: int = 44,
+    config_path: str = None,
+    threshold_probability: float = None,
+    recovery_model: str = None,
+    randomized_speed_heading: bool = True,
+):
+    """
+    Run a stochastic pairwise conflict simulation and compute IPR.
+
+    Parameters
+    ----------
+    recovery_model : str, optional
+        If provided, overrides the recovery model from the config file.
+        Valid values: "CPA", "FTR", "Probabilistic FTR".
+
+    Returns
+    -------
+    distance_array : np.ndarray
+        Distance over time for each pair, shape (T, nb_pair)
+    ipr : float
+        Intrusion Prevention Rate
+    """
 
     # ----------------------------
-    # Compute IPR
+    # Load config
     # ----------------------------
-    distance_array = np.asarray(distance_array)[:, :pairwise.nb_pair]
-    min_dist = np.min(distance_array, axis=0)
+    cfg = get_configs(config_path) if config_path else get_configs()
 
-    n_los = int(np.sum(min_dist < horizontal_sep))
-    n_conflict = int(pairwise.nb_pair)
+    if recovery_model is not None:
+        cfg.recovery_model = recovery_model
 
-    ipr = 1.0 - (n_los / float(n_conflict))
+    bs.settings.asas_marh = asas_marh
+
+    # ----------------------------
+    # CDR models
+    # ----------------------------
+    conf_detection, conf_detection_gt, conf_resolution, conf_recovery = _create_cdr_models(cfg)
+
+    # ----------------------------
+    # Environment
+    # ----------------------------
+    pairwise = PairwiseHorConflict(
+        pair_width=cfg.width,
+        pair_height=cfg.height,
+        asas_pzr_m=cfg.horizontal_sep,
+        dtlookahead=lookahead_time * 1.5,
+        init_speed_ownship=np.random.uniform(10, 30),  # Randomize initial speed for ownship
+        init_speed_intruder=np.random.uniform(10, 30),  # Randomize initial speed for ownship
+        init_dpsi=np.random.uniform(0, 360),  # Randomize initial dpsi
+        aircraft_type_ownship=cfg.aircraft_type,
+        simdt_factor=cfg.SIMDT_FACTOR,
+    )
+
+    simdt = bs.settings.simdt * cfg.SIMDT_FACTOR
+    tmax = 600
+
+    # ----------------------------
+    # ADSL setup
+    # ----------------------------
+    adsl_bus, ownship_adsl, intruder_adsl, prev_intruder_adsl = _create_adsl_stack(
+        confidence_interval, confidence_interval_velo, reception_prob, seed
+    )
+
+    # ----------------------------
+    # Simulation loop
+    # ----------------------------
+    sim_timer = 0.0
+    next_event_t = 0.0
+    event_dt = float(bs.settings.asas_dt)
+    eps = np.finfo(float).eps * 100
+
+    distance_array = []
+    done_start_time = None
+    initialized = False
+
+    while sim_timer < tmax:
+
+        states = pairwise._get_states()
+        n = int(states.ntraf)
+
+        if not initialized:
+            ownship_adsl.update_from_truth(states)
+            adsl_bus.send_data(intruder_adsl, ownship_adsl, indices=None)
+            adsl_bus.send_data(prev_intruder_adsl, intruder_adsl, indices=None)
+            initialized = True
+
+        if sim_timer + eps >= next_event_t:
+
+            # --- ADSL update ---
+            ownship_adsl.update_from_truth(states)
+
+            idx_rx = intruder_adsl.reception.sample_indices(n)
+            rx_mask = np.zeros(n, dtype=bool)
+            rx_mask[idx_rx] = True
+            idx_miss = np.where(~rx_mask)[0]
+
+            if idx_rx.size > 0:
+                adsl_bus.send_data(intruder_adsl, ownship_adsl, indices=idx_rx)
+            if idx_miss.size > 0:
+                adsl_bus.send_data(intruder_adsl, prev_intruder_adsl, indices=idx_miss)
+
+            adsl_bus.send_data(prev_intruder_adsl, intruder_adsl, indices=None)
+
+            # --- Detect / resolve ---
+            conf_detection.detect(
+                ownship_adsl,
+                intruder_adsl,
+                cfg.horizontal_sep,
+                100.0,
+                lookahead_time,
+            )
+
+            conf_detection_gt.detect(
+                states,
+                states,
+                cfg.horizontal_sep,
+                100.0,
+                lookahead_time,
+            )
+
+            reso = conf_resolution.resolve(
+                conf_detection,
+                ownship_adsl,
+                intruder_adsl,
+                asas_marh
+            )
+
+            conf_detection.sigma_r = np.sqrt(ownship_adsl.pos_std**2 + intruder_adsl.pos_std**2)
+            conf_detection.sigma_v = np.sqrt(ownship_adsl.vel_std**2 + intruder_adsl.vel_std**2)
+            conf_detection.dcpa_prob_threshold = threshold_probability
+
+            delpairs_noise = conf_recovery(conf_resolution, conf_detection, ownship_adsl, intruder_adsl)
+
+            missed = (
+                int(np.floor((sim_timer - next_event_t) / event_dt)) + 1
+                if sim_timer > next_event_t
+                else 1
+            )
+            next_event_t += missed * event_dt
+
+        # --- Step environment ---
+        dist = pairwise.step(reso)
+        distance_array.append(dist)
+
+        # --- Done logic ---
+        done_now, is_active = _check_tcpa_tinhor_per_pair(
+            bs.traf.id,
+            conf_detection_gt.tcpa_all,
+            conf_detection_gt.tinhor_all,
+        )
+
+        dist_hist = np.asarray(distance_array)
+        min_dist_so_far = np.min(dist_hist, axis=0)
+
+        n_active = int(np.sum(is_active & (min_dist_so_far > 50.0)))
+
+        done_start_time, should_stop = done_with_timeout(
+            done_now,
+            done_start_time,
+            sim_timer,
+            cfg.DONE_TIMEOUT,
+            verbose=False,
+        )
+
+        if should_stop:
+            break
+
+        sim_timer += simdt
+
+    # ----------------------------
+    # Cleanup & compute IPR
+    # ----------------------------
+    pairwise.reset()
+    distance_array, ipr = _compute_ipr(distance_array, pairwise.nb_pair, cfg.horizontal_sep)
 
     return distance_array, ipr, sim_timer, n_active

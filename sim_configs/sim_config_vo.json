@@ -21,7 +21,7 @@
 
   "conflict_models": {
     "detection": "StateBased",
-    "resolution": "MVP",
+    "resolution": "VO",
     "recovery": "CPA"
   },
 

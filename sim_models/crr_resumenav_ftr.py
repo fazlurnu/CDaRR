@@ -1,72 +1,30 @@
 import numpy as np
 import bluesky as bs
 
+from sim_models.crr_recovery_base import (
+    get_desired_ownship_velocity,
+    compute_pair_positions,
+    get_pair_dxdy,
+    apply_recovery,
+    record_initial_intruder_velocity,
+)
+
+
+def calculate_dcpa(dx, dy, du, dv):
+    dv2 = du * du + dv * dv
+    if abs(dv2) < 1e-6:
+        dv2 = 1e-6
+    tcpa = -(du * dx + dv * dy) / dv2
+    dist2 = dx * dx + dy * dy
+    dcpa2 = abs(dist2 - tcpa * tcpa * dv2)
+    return float(np.sqrt(dcpa2)), float(tcpa)
+
+
 def resumenav_double_criteria(reso, conf, ownship, intruder):
-    if not hasattr(reso, "_intr_init_vel"):
-        reso._intr_init_vel = {}
+    record_initial_intruder_velocity(reso, conf, intruder)
 
-    curpairs = set(conf.confpairs)
-    newpairs = curpairs - reso.resopairs
-    reso.resopairs.update(curpairs)
-
-    for pair in newpairs:
-        idx1, idx2 = bs.traf.id2idx(pair)
-        if idx1 >= 0 and idx2 >= 0:
-            # Vi,i recorded at conflict initiation
-            reso._intr_init_vel[pair] = (float(intruder.gseast[idx2]),
-                                        float(intruder.gsnorth[idx2]))
-
-    def calculate_dcpa(dx, dy, du, dv):
-        dv2 = du * du + dv * dv
-        if abs(dv2) < 1e-6:
-            dv2 = 1e-6
-        tcpa = -(du * dx + dv * dy) / dv2
-        dist2 = dx * dx + dy * dy
-        dcpa2 = abs(dist2 - tcpa * tcpa * dv2)
-        return float(np.sqrt(dcpa2)), float(tcpa)
-
-    pair_dxdy = {}
-    if len(conf.confpairs) > 0:
-        q = np.radians(conf.qdr)
-        dxs = conf.dist * np.sin(q)
-        dys = conf.dist * np.cos(q)
-        pair_dxdy = dict(zip(conf.confpairs, zip(dxs.tolist(), dys.tolist())))
-
+    pair_dxdy = compute_pair_positions(conf)
     vod_cache = {}
-
-    def _val(a, idx):
-        try:
-            return float(a[idx])
-        except Exception:
-            return None
-
-    def get_Vo_d(idx):
-        if idx in vod_cache:
-            return vod_cache[idx]
-
-        trk = None
-        if hasattr(ownship, "seltrk"):
-            trk = _val(ownship.seltrk, idx)
-        if trk is None and hasattr(ownship, "ap") and hasattr(ownship.ap, "trk"):
-            trk = _val(ownship.ap.trk, idx)
-        if trk is None:
-            trk = _val(ownship.trk, idx)
-
-        spd = None
-        if hasattr(ownship, "selspd"):
-            spd = _val(ownship.selspd, idx)
-        if spd is None and hasattr(ownship, "ap") and hasattr(ownship.ap, "tas"):
-            spd = _val(ownship.ap.tas, idx)
-        if spd is None:
-            spd = _val(getattr(ownship, "gs", None), idx)
-        if spd is None:
-            spd = float(np.hypot(ownship.gseast[idx], ownship.gsnorth[idx]))
-
-        r = np.radians(trk)
-        u = spd * np.sin(r)
-        v = spd * np.cos(r)
-        vod_cache[idx] = (u, v)
-        return u, v
 
     delpairs = set()
     changeactive = {}
@@ -85,20 +43,9 @@ def resumenav_double_criteria(reso, conf, ownship, intruder):
             changeactive[idx1] = changeactive.get(idx1, False)
             continue
 
-        if conflict in pair_dxdy:
-            dx, dy = pair_dxdy[conflict]
-            dx = float(dx)
-            dy = float(dy)
-        else:
-            re = 6371000.0
-            dlon = float(intruder.lon[idx2] - ownship.lon[idx1])
-            dlat = float(intruder.lat[idx2] - ownship.lat[idx1])
-            latm = 0.5 * np.radians(float(intruder.lat[idx2] + ownship.lat[idx1]))
-            dx = re * np.radians(dlon) * np.cos(latm)
-            dy = re * np.radians(dlat)
-
+        dx, dy = get_pair_dxdy(conflict, pair_dxdy, ownship, intruder, idx1, idx2)
         rpz = float(np.max(conf.rpz[[idx1, idx2]]))
-        Vo_u, Vo_v = get_Vo_d(idx1)
+        Vo_u, Vo_v = get_desired_ownship_velocity(ownship, idx1, vod_cache)
 
         Vi_c_u = float(intruder.gseast[idx2])
         Vi_c_v = float(intruder.gsnorth[idx2])
@@ -123,12 +70,5 @@ def resumenav_double_criteria(reso, conf, ownship, intruder):
         else:
             changeactive[idx1] = True
 
-    for idx, active in changeactive.items():
-        reso.active[idx] = active
-        if not active:
-            iwpid = bs.traf.ap.route[idx].findact(idx)
-            if iwpid != -1:
-                bs.traf.ap.route[idx].direct(idx, bs.traf.ap.route[idx].wpname[iwpid])
-
-    reso.resopairs -= delpairs
+    apply_recovery(changeactive, reso, delpairs)
     return delpairs
