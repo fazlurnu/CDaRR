@@ -26,14 +26,29 @@ SPEED_MIN_KTS   = 10.0    # exp3 heterogeneous range
 SPEED_MAX_KTS   = 30.0
 SPEED_HOMOGEN_KTS = 20.0  # exp4 fixed speed
 
-# ── Uncertainty (single level for exp3/exp4) ──────────────────────────────────
-POS_CI95 = 10.0           # confidence_interval (m)
-VEL_CI95 =  1.0           # confidence_interval_velo (m/s)
+# ── Uncertainty for exp3/exp4 ──────────────────────────────────────────────────
+POS_CI95 = 10.0           # confidence_interval (m) -- default / first sweep level
+VEL_CI95 =  1.0           # confidence_interval_velo (m/s)  (single level)
+
+# Position CI95 levels swept in exp3/exp4 (vel_ci95 held fixed at VEL_CI95).
+POS_CI95_LEVELS = [10.0, 3.0]
 
 # ── Noise model parameters ────────────────────────────────────────────────────
-LATENCY_S   = 0.0661      # s — ADS-B v2 mean latency
+# LATENCY_S: Schaefer & Jonas (2025, "ADS-B Positional Accuracy and Anomalies")
+# measured a mean ADS-B v2 latency of only 66.1 ms (median 72.75 ms) from
+# high-resolution MLAT ground truth. We deliberately assume 100 ms here --
+# more severe than that reported figure -- as a stress test of the along-track
+# bias this latency induces (bias_at = -latency_s * gs).
+LATENCY_S   = 0.1         # s — deliberately more severe than the ~66 ms reported for ADS-B v2
 TAIL_RATIO  = 3.0
 TAIL_WEIGHT = 0.10
+# ANISO_VAR_RATIO: Schaefer & Jonas (2025) report along-track position error as
+# roughly 3x the cross-track stdev (cross-track std ~3.2-3.4 m; along-track
+# stdev clusters ~10 m across manufacturers/models, see their Fig. 5/6). That's
+# a STDEV ratio of 3, so the variance ratio (what make_anisotropic_gaussian
+# takes) is 3**2 = 9. The overall radial CI95 stays POS_CI95=10 m regardless
+# -- only the along-/cross-track split changes.
+ANISO_VAR_RATIO = 9.0     # along-track / cross-track position-noise variance ratio (stdev ratio 3x)
 
 # ── Monte Carlo ────────────────────────────────────────────────────────────────
 N_RUNS   = 1_000          # 1000 runs x 100 pairs = 100 000 pairs per condition
