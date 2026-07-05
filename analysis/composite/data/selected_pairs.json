@@ -1,0 +1,55 @@
+{
+  "rpz": 50.0,
+  "gamma": 0.999,
+  "seeds": {
+    "almost_parallel": 44,
+    "almost_parallel_probfail": 89,
+    "large_angle": 137
+  },
+  "cases": {
+    "almost_parallel": {
+      "prob_wins": {
+        "pair": 70,
+        "cpa": {
+          "double_criteria": 35.6,
+          "probabilistic": 92.0,
+          "cpa": 34.7
+        },
+        "t_cpa": {
+          "double_criteria": 193.6,
+          "probabilistic": 51.8,
+          "cpa": 338.8
+        }
+      },
+      "prob_fails": {
+        "pair": 36,
+        "cpa": {
+          "double_criteria": 54.1,
+          "probabilistic": 47.3,
+          "cpa": 44.6
+        },
+        "t_cpa": {
+          "double_criteria": 194.0,
+          "probabilistic": 177.4,
+          "cpa": 177.8
+        },
+        "seed": 89
+      }
+    },
+    "large_angle": {
+      "ftr_wins": {
+        "pair": 13,
+        "cpa": {
+          "double_criteria": 59.4,
+          "probabilistic": 48.1,
+          "cpa": 48.1
+        },
+        "t_cpa": {
+          "double_criteria": 147.2,
+          "probabilistic": 143.0,
+          "cpa": 143.0
+        }
+      }
+    }
+  }
+}
