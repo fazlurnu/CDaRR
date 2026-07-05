@@ -12,9 +12,13 @@ class NoiseModel:
     - Velocity: 2D Gaussian added to North/East ground-speed components (m/s).
 
     Optional (exp3/exp4 noise-model sweep):
-    - ``pos_dist``: a callable ``(n, ci95, rng) -> (n, 2)`` in metres that
-      replaces the default Gaussian position draw (e.g. mixture-Gaussian). When
-      ``None`` the original 2D-Gaussian behaviour is used unchanged.
+    - ``pos_dist``: a callable ``(n, ci95, rng, trk_rad) -> (n, 2)`` in metres
+      that replaces the default Gaussian position draw (e.g. mixture-Gaussian,
+      anisotropic along-/cross-track Gaussian). ``trk_rad`` is the per-sample
+      aircraft track angle in radians, for distributions that need to orient
+      themselves relative to heading; distributions that don't need it may
+      ignore the argument. When ``pos_dist`` is ``None`` the original
+      2D-Gaussian behaviour is used unchanged.
     - ``latency_s``: ADS-B position reporting latency in seconds. Adds a
       per-aircraft along-track bias of ``-latency_s * gs`` (metres), i.e. the
       reported position lags behind truth. ``0.0`` disables it.
@@ -43,18 +47,19 @@ class NoiseModel:
         if idx.size == 0:
             return
 
+        trk_rad = np.deg2rad(np.asarray(states.trk[idx], dtype=float))
+
         # Draw (east_m, north_m): custom distribution if provided, else Gaussian.
         if self.pos_dist is None:
             xy = self.rng.multivariate_normal((0.0, 0.0), self.pos_cov, size=int(idx.size))
         else:
-            xy = self.pos_dist(int(idx.size), self._pos_ci95, self.rng)
+            xy = self.pos_dist(int(idx.size), self._pos_ci95, self.rng, trk_rad)
         east_m = xy[:, 0]
         north_m = xy[:, 1]
 
         # Along-track latency bias: reported position lags truth by latency_s * gs.
         if self.latency_s:
             gs = np.asarray(states.gs[idx], dtype=float)
-            trk_rad = np.deg2rad(np.asarray(states.trk[idx], dtype=float))
             bias_at = -self.latency_s * gs
             east_m = east_m + bias_at * np.sin(trk_rad)
             north_m = north_m + bias_at * np.cos(trk_rad)
