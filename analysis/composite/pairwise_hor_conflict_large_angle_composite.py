@@ -71,8 +71,7 @@ pair = entry["pair"]
 print(f"  ftr_wins → pair {pair:03d}  {entry['cpa']}")
 
 dist_max = _nice_ceil(_panel_max(res_single, pair, DETAIL_T_MAX, "dist_arr"))
-dcpa_max = _nice_ceil(_panel_max(res_single, pair, DETAIL_T_MAX,
-                                 "dcpa_gt_arr", "dcpa_obs_arr"))
+dcpa_max = 450.0   # fixed projected-CPA y-limit across all columns
 traj_xlim, traj_ylim = _pair_trajectory_bbox(res_single, pair)
 
 path = plot_pair_cdr_composite(res_single, FIGURE_DIR, pair, t_max=DETAIL_T_MAX,

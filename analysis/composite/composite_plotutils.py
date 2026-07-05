@@ -214,6 +214,12 @@ def plot_pair_cdr_composite(results_by_label, figure_dir, pair, *, t_max=None,
             if col > 0:
                 ax.tick_params(labelleft=False)
 
+    # Trajectory columns share y-limits (traj_ylim); drop the redundant tick
+    # labels on all but the leftmost column.
+    if traj_ylim is not None:
+        for ax in axes_traj[1:]:
+            ax.tick_params(labelleft=False)
+
     axes_traj[0].set_ylabel("North [m]")
     axes_dist[0].set_ylabel("Actual distance [m]")
     axes_dcpa[0].set_ylabel("Projected dist. at CPA [m]")

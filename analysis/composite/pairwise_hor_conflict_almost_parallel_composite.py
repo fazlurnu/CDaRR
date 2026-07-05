@@ -74,8 +74,7 @@ for case, data_path in CASE_DATA.items():
     print(f"  {case:<11} → pair {pair:03d} (seed {entry.get('seed', 'AP')})  {entry['cpa']}")
 
     dist_max = _nice_ceil(_panel_max(res_single, pair, DETAIL_T_MAX, "dist_arr"))
-    dcpa_max = _nice_ceil(_panel_max(res_single, pair, DETAIL_T_MAX,
-                                     "dcpa_gt_arr", "dcpa_obs_arr"))
+    dcpa_max = 450.0   # fixed projected-CPA y-limit across all columns
     traj_ylim = _pair_trajectory_bbox(res_single, pair)
 
     path = plot_pair_cdr_composite(res_single, FIGURE_DIR, pair, t_max=DETAIL_T_MAX,
