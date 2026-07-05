@@ -9,16 +9,17 @@ Design
 * Uncertainty    : pos_ci95=10 m, vel_ci95=1 m/s  (single level)
 * Noise model    : Normal Gaussian / Latency bias / Mixture Gaussian  (3 conditions)
 * Recovery       : Probabilistic FTR / FTR  (2 conditions)
-* Crossing angle : drawn i.i.d. from Uniform(0, 360 deg) per run (seeded, shared
+* Crossing angle : drawn i.i.d. from Uniform(0, 360 deg) PER PAIR (seeded, shared
                    across all conditions for comparability)
 * Speed          : ownship and intruder each drawn i.i.d. from
-                   Uniform(10, 30) kts per run (converted to m/s at the boundary)
+                   Uniform(10, 30) kts PER PAIR (converted to m/s at the boundary)
 * Pairs per run  : 10 x 10 = 100  (fixed by the env / config)
 * Runs per model : 1 000    ->   100 x 1 000 = 100 000 pairs per condition
 
-NB — heterogeneity here is per-run (one ownship speed + one intruder speed per
-run), not per-pair as in CDaRR_FP: this env takes a scalar speed. Over 1000 runs
-the marginal speed distribution is identical; only within-run correlation differs.
+NB — both crossing angle and speed heterogeneity are now per-pair, matching
+CDaRR_FP: each of the 100 pairs in a run gets its own crossing angle and its own
+ownship/intruder speed. This is enabled by PairwiseHorConflict accepting
+length-NB_PAIR dpsi/speed arrays (it still spawns via creconfs / lookahead time).
 
 Results saved to experiments/results/exp3.npz.  Run directly::
 
@@ -51,11 +52,14 @@ NOISE_MODELS = [
 ]
 NOISE_LABELS = [m[0] for m in NOISE_MODELS]
 
-# ── Pre-generate per-run angles and speeds (seeded, shared across conditions) ─
+# ── Pre-generate per-pair angles and speeds (seeded, shared across conditions) ─
+# Both crossing angle and speed are heterogeneous PER PAIR: each of the NB_PAIR
+# pairs in a run gets its own crossing angle ~ Uniform(0, 360) deg and its own
+# ownship/intruder speed ~ Uniform(SPEED_MIN, SPEED_MAX) kts.
 rng = np.random.default_rng(BASE_SEED)
-dpsi_values = rng.uniform(0.0, 360.0, size=N_RUNS)
-speed_own_kts = rng.uniform(SPEED_MIN_KTS, SPEED_MAX_KTS, size=N_RUNS)
-speed_int_kts = rng.uniform(SPEED_MIN_KTS, SPEED_MAX_KTS, size=N_RUNS)
+dpsi_values   = rng.uniform(0.0, 360.0, size=(N_RUNS, NB_PAIR))
+speed_own_kts = rng.uniform(SPEED_MIN_KTS, SPEED_MAX_KTS, size=(N_RUNS, NB_PAIR))
+speed_int_kts = rng.uniform(SPEED_MIN_KTS, SPEED_MAX_KTS, size=(N_RUNS, NB_PAIR))
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 n_recovery = len(RECOVERY_METHODS)
@@ -71,15 +75,15 @@ def _one(rep, pos_dist, latency_s, recovery_model):
         confidence_interval_velo=VEL_CI95,
         reception_prob=RECEPTION_PROB,
         lookahead_time=LOOKAHEAD,
-        dpsi=float(dpsi_values[rep]),
+        dpsi=dpsi_values[rep],   # per-pair, shape (NB_PAIR,)
         seed=BASE_SEED + rep,
         config_path=CONFIG_PATH,
         threshold_probability=DEFAULT_GAMMA,
         recovery_model=recovery_model,
         pos_dist=pos_dist,
         latency_s=latency_s,
-        init_speed_ownship=float(speed_own_kts[rep]) * KTS_TO_MS,
-        init_speed_intruder=float(speed_int_kts[rep]) * KTS_TO_MS,
+        init_speed_ownship=speed_own_kts[rep] * KTS_TO_MS,   # per-pair, shape (NB_PAIR,)
+        init_speed_intruder=speed_int_kts[rep] * KTS_TO_MS,  # per-pair, shape (NB_PAIR,)
     )
     return ipr, np.min(dist_arr, axis=0)  # min over time -> shape (nb_pair,)
 

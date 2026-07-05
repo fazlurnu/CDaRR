@@ -43,8 +43,15 @@ class PairwiseHorConflict():
         self.asas_pzr_m = asas_pzr_m
         self.dtlookahead = dtlookahead
 
-        self.init_speed_ownship = init_speed_ownship
-        self.init_speed_intruder = init_speed_intruder
+        # Per-pair speeds: accept a scalar (same speed for every pair) or a
+        # length-nb_pair array (per-pair heterogeneity, e.g. exp3). Broadcast to
+        # a length-nb_pair array so both creation and _do_action can index by pair.
+        self.init_speed_ownship = np.broadcast_to(
+            np.asarray(init_speed_ownship, dtype=float), (self.nb_pair,)
+        ).copy()
+        self.init_speed_intruder = np.broadcast_to(
+            np.asarray(init_speed_intruder, dtype=float), (self.nb_pair,)
+        ).copy()
 
         # we measure the distance
         self.distance_array = np.zeros((self.nb_pair))
@@ -57,11 +64,15 @@ class PairwiseHorConflict():
 
         # this is to generate the heading, 0 for ownship
         # init_dpsi for intruder if init_dpsi is not None
-        if(init_dpsi != None):
-            self.init_heading = np.array([
-                                        0 if i % 2 == 0 else init_dpsi
-                                        for i in range(2 * pair_width * pair_height)
-                                    ])
+        # init_dpsi may be a scalar (same crossing angle for every pair) or a
+        # length-nb_pair array (per-pair crossing angle, e.g. exp3). Even indices
+        # are ownships (heading 0); odd indices are intruders (crossing angle).
+        if init_dpsi is not None:
+            dpsi_arr = np.broadcast_to(
+                np.asarray(init_dpsi, dtype=float), (self.nb_pair,)
+            )
+            self.init_heading = np.zeros(2 * self.nb_pair)
+            self.init_heading[1::2] = dpsi_arr
         else:
             self.init_heading = np.array([
                                             0 if i % 2 == 0 else np.random.randint(0, 360)
@@ -99,7 +110,7 @@ class PairwiseHorConflict():
                 
                 ## the heading of this one is always zero
                 bs.traf.cre(acid=ownship_id, actype= self.aircraft_type_ownship, aclat=aclats, aclon=aclons,
-                    achdg=self.init_heading[idx], acalt=ALT, acspd=self.init_speed_ownship)
+                    achdg=self.init_heading[idx], acalt=ALT, acspd=self.init_speed_ownship[counter])
                 self.ownship_ids.append(ownship_id)
                 self.ownship_idx.append(idx)
 
@@ -107,7 +118,7 @@ class PairwiseHorConflict():
 
                 ## make intruder, dpsi is random
                 bs.traf.creconfs(acid=intruder_id, actype = self.aircraft_type_intruder, targetidx=bs.traf.id2idx(ownship_id),
-                                dpsi=self.init_heading[idx], dcpa = dcpa, tlosh = bs.settings.asas_dtlookahead, spd = self.init_speed_intruder)
+                                dpsi=self.init_heading[idx], dcpa = dcpa, tlosh = bs.settings.asas_dtlookahead, spd = self.init_speed_intruder[counter])
                 self.intruder_ids.append(intruder_id)
                 self.intruder_idx.append(idx)
 
@@ -130,22 +141,23 @@ class PairwiseHorConflict():
         for i in range(ntraf):
             target_id = bs.traf.id[i]
 
+            # Per-pair nominal speed: DRO### / DRI### -> pair index ###.
+            pair_idx = int(target_id[3:])
+            if("DRO" in target_id):
+                nom_spd = self.init_speed_ownship[pair_idx]
+            else:
+                nom_spd = self.init_speed_intruder[pair_idx]
+
             if action != None:
                 if(any(target_id in pair for pair in resopairs)):
                     bs.stack.stack(f"HDG {target_id}, {reso_hdg[i]}")
                     bs.stack.stack(f"SPD {target_id}, {reso_spd[i] / kts}") # this should be in kts
                 else:
                     bs.stack.stack(f"HDG {target_id}, {self.init_heading[i]}")
-                    if("DRO" in target_id):
-                        bs.stack.stack(f"SPD {target_id}, {self.init_speed_ownship / kts}") # this should be in kts
-                    else:
-                        bs.stack.stack(f"SPD {target_id}, {self.init_speed_intruder / kts}") # this should be in kts
+                    bs.stack.stack(f"SPD {target_id}, {nom_spd / kts}") # this should be in kts
             else:
                 bs.stack.stack(f"HDG {target_id}, {self.init_heading[i]}")
-                if("DRO" in target_id):
-                    bs.stack.stack(f"SPD {target_id}, {self.init_speed_ownship / kts}") # speed in kts
-                else: 
-                    bs.stack.stack(f"SPD {target_id}, {self.init_speed_intruder / kts}") # speed in kts
+                bs.stack.stack(f"SPD {target_id}, {nom_spd / kts}") # speed in kts
 
     def _update_distance(self) -> None:
         # Gather lat/lon arrays for all pairs
