@@ -78,9 +78,21 @@ def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_
                        pos_dist=None, latency_s=0.0):
     """Create the four ADSL nodes (bus, ownship, intruder, prev_intruder).
 
-    ``pos_dist`` / ``latency_s`` select the position noise model (exp3/exp4
-    noise-model sweep) and are forwarded to every node; only ``ownship_adsl``
-    actually injects noise via ``update_from_truth`` in the simulation loop.
+    ``pos_dist`` selects the general position-noise model (exp3/exp4
+    noise-model sweep) and is forwarded to every node; only ``ownship_adsl``
+    actually injects it via ``update_from_truth`` in the simulation loop.
+
+    ``latency_s`` (ADS-B reporting latency) is deliberately *not* passed to
+    ``ownship_adsl``: latency is a broadcast-transmission delay, so it should
+    only affect the position of an aircraft as perceived by *someone else*
+    receiving its (delayed) ADS-B message -- not an aircraft's own directly-
+    known state. ``ownship_adsl`` is used as the "own" state in conflict
+    detection/resolution/recovery, so it keeps the general position noise but
+    always has ``latency_s=0.0``. ``intruder_adsl`` keeps the real
+    ``latency_s``; the simulation loop applies the bias explicitly (via
+    ``intruder_adsl.noise.add_latency_bias``) only to freshly-received
+    aircraft, on top of the (already latency-free) general noise relayed in
+    from ``ownship_adsl``. See the simulation loop below.
     """
     adsl_bus = ADSL(
         confidence_interval,
@@ -97,7 +109,7 @@ def _create_adsl_stack(confidence_interval, confidence_interval_velo, reception_
         reception_prob=1.0,
         seed=seed + 2,
         pos_dist=pos_dist,
-        latency_s=latency_s,
+        latency_s=0.0,
     )
 
     intruder_adsl = ADSL(
@@ -252,6 +264,9 @@ def get_ipr_stochastic_env(
         if not initialized:
             ownship_adsl.update_from_truth(states)
             adsl_bus.send_data(intruder_adsl, ownship_adsl, indices=None)
+            # Latency bias applies only to the perceived/received copy (see
+            # _create_adsl_stack docstring), not to ownship_adsl own state.
+            intruder_adsl.noise.add_latency_bias(intruder_adsl.msg, states, np.arange(n))
             adsl_bus.send_data(prev_intruder_adsl, intruder_adsl, indices=None)
             initialized = True
 
@@ -267,6 +282,10 @@ def get_ipr_stochastic_env(
 
             if idx_rx.size > 0:
                 adsl_bus.send_data(intruder_adsl, ownship_adsl, indices=idx_rx)
+                # Add the along-track latency bias only for freshly-received
+                # aircraft (a stale/held-over contact, relayed below via
+                # idx_miss, already carries the bias from when it was fresh).
+                intruder_adsl.noise.add_latency_bias(intruder_adsl.msg, states, idx_rx)
             if idx_miss.size > 0:
                 adsl_bus.send_data(intruder_adsl, prev_intruder_adsl, indices=idx_miss)
 

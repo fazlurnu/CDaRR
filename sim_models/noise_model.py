@@ -57,13 +57,6 @@ class NoiseModel:
         east_m = xy[:, 0]
         north_m = xy[:, 1]
 
-        # Along-track latency bias: reported position lags truth by latency_s * gs.
-        if self.latency_s:
-            gs = np.asarray(states.gs[idx], dtype=float)
-            bias_at = -self.latency_s * gs
-            east_m = east_m + bias_at * np.sin(trk_rad)
-            north_m = north_m + bias_at * np.cos(trk_rad)
-
         mean_lat = np.asarray(states.lat[idx], dtype=float)
 
         lat_noise_deg = north_m / 111_320.0
@@ -73,6 +66,37 @@ class NoiseModel:
 
         msg.lat[idx] = states.lat[idx] + lat_noise_deg
         msg.lon[idx] = states.lon[idx] + lon_noise_deg
+
+        # Along-track latency bias: reported position lags truth by latency_s * gs.
+        # Factored out into its own method so callers that need to apply *only*
+        # the deterministic bias (e.g. to a received/relayed copy, without
+        # redrawing the random position-noise component) can call it directly.
+        self.add_latency_bias(msg, states, idx)
+
+    def add_latency_bias(self, msg: ADSLMessage, states: Any, idx: np.ndarray) -> None:
+        """Add *only* the deterministic along-track latency bias to msg.lat/lon
+        for aircraft in idx (no new random draw). No-op if ``latency_s == 0``.
+
+        Uses this NoiseModel's ``latency_s`` and the (true) groundspeed/track
+        in ``states`` for the bias magnitude/direction, matching the
+        along-track convention in ``add_position_noise``.
+        """
+        if idx.size == 0 or not self.latency_s:
+            return
+
+        trk_rad = np.deg2rad(np.asarray(states.trk[idx], dtype=float))
+        gs = np.asarray(states.gs[idx], dtype=float)
+        bias_at = -self.latency_s * gs
+        east_bias = bias_at * np.sin(trk_rad)
+        north_bias = bias_at * np.cos(trk_rad)
+
+        mean_lat = np.asarray(states.lat[idx], dtype=float)
+        lat_bias_deg = north_bias / 111_320.0
+        coslat = np.maximum(np.cos(np.deg2rad(mean_lat)), 1e-6)
+        lon_bias_deg = east_bias / (111_320.0 * coslat)
+
+        msg.lat[idx] = msg.lat[idx] + lat_bias_deg
+        msg.lon[idx] = msg.lon[idx] + lon_bias_deg
 
     def add_velocity_noise(self, msg: ADSLMessage, idx: np.ndarray) -> None:
         """

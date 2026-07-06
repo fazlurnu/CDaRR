@@ -23,7 +23,10 @@ Design
 See ``exp3-noise-model-random-angle.py`` for the reviewer-response rationale
 behind these six noise conditions (incl. the ADS-B MLAT-accuracy paper
 citation) and the LATENCY_S=100 ms stress-test choice (shared via
-experiments/config.py).
+experiments/config.py). Note: the latency bias (`latency`/`latency_aniso`) is
+intruder-only -- applied only to the intruder's position as perceived by
+ownship, never to ownship's own state -- via get_ipr_stochastic_env's
+ownship_adsl/intruder_adsl split; see my-observation.md #13.
 
 Results saved to experiments/results/exp4.npz.  Run directly::
 

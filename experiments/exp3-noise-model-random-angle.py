@@ -30,17 +30,24 @@ Rationale (reviewer response)
 Reviewers flagged that isotropic Gaussian position noise doesn't capture
 real-world effects: non-Gaussian / heavy-tailed errors, biased errors, and
 anisotropic errors. The six noise conditions above are our response:
-* Latency bias   -> biased error (deterministic along-track lag).
+* Latency bias   -> biased error (deterministic along-track lag). Intruder-only:
+  latency is a broadcast-transmission delay, so it's applied only to the
+  intruder's position as perceived by ownship (via get_ipr_stochastic_env's
+  intruder_adsl), never to ownship's own state -- an aircraft knows its own
+  position instantly from its own GNSS/INS, with no reception step involved.
+  See my-observation.md #13 for the implementation details.
 * Heavy-tail Gaussian -> heavy-tailed / non-Gaussian error (e.g. multipath),
   implemented as a two-component Gaussian mixture (make_mixture_gaussian).
+  Applied symmetrically to both ownship and intruder (it's each aircraft's
+  own GNSS/sensor accuracy, not a transmission artifact like latency).
 * Anisotropic Gaussian -> along-track/cross-track anisotropy (along-track
   stdev = 3x cross-track stdev; radial CI95 held at whichever pos_ci95 level
-  is being run, 10 m or 3 m).
-* Latency + Anisotropic -> latency bias layered on top of the anisotropic
-  Gaussian (same pos_dist as 'anisotropic', with latency_s=LATENCY_S).
-* Heavy-tail + Anisotropic -> heavy-tailed anisotropic Gaussian: both mixture
-  components share the along-/cross-track ratio, and the tail component's
-  axes are both scaled by TAIL_RATIO (make_anisotropic_mixture_gaussian).
+  is being run, 10 m or 3 m). Also symmetric, same reasoning as heavy-tail.
+* Latency + Anisotropic -> the anisotropic Gaussian (symmetric, both aircraft)
+  plus the latency bias (intruder-only, as above) layered on top.
+* Heavy-tail + Anisotropic -> heavy-tailed anisotropic Gaussian (symmetric):
+  both mixture components share the along-/cross-track ratio, and the tail
+  component's axes are both scaled by TAIL_RATIO (make_anisotropic_mixture_gaussian).
 The pos_ci95 in {10 m, 3 m} sweep (POS_CI95_LEVELS in experiments/config.py)
 tests whether these effects hold up as the nominal accuracy tightens.
 Schaefer & Jonas (2025, "ADS-B Positional Accuracy and Anomalies: A

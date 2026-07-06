@@ -1,0 +1,144 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\title{Position-Noise Models Used in \texttt{exp3}/\texttt{exp4}}
+\author{}
+\date{}
+
+\newcommand{\ci}{\mathrm{ci95}}
+
+\begin{document}
+\maketitle
+
+\section*{Common notation}
+Let $\psi$ denote the aircraft heading (\texttt{trk\_rad}), $g$ the groundspeed,
+and $\Phi(\cdot)$, $\varphi(\cdot;\sigma)$ the standard normal CDF and the
+zero-mean normal PDF with standard deviation $\sigma$. Along-track error
+$e_a$ and cross-track error $e_c$ rotate into East/North components via
+\begin{equation}
+  e_E = e_a \sin\psi + e_c \cos\psi, \qquad
+  e_N = e_a \cos\psi - e_c \sin\psi.
+\end{equation}
+All six models are calibrated so that the radial error
+$R = \sqrt{e_E^2 + e_N^2}$ satisfies $P(R \le \ci) = 0.95$ for a given target
+$\ci$ (10\,m or 3\,m in the exp3/exp4 sweep).
+
+\section{Normal (isotropic Gaussian)}
+\begin{equation}
+  (e_E, e_N) \sim \mathcal{N}\!\left(0,\ \sigma^2 I_2\right), \qquad
+  \sigma = \frac{\ci}{2.448}.
+\end{equation}
+The constant $2.448 = \sqrt{-2\ln 0.05}$ makes $R$ Rayleigh-distributed with
+CDF $1 - e^{-r^2/2\sigma^2}$, which hits exactly $0.95$ at $r = \ci$ by
+construction. At $\ci = 10$\,m: $\sigma \approx 4.085$\,m.
+
+\section{Latency (positional bias)}
+Same isotropic Gaussian, plus a deterministic along-track lag applied before
+rotation:
+\begin{equation}
+  e_a \sim \mathcal{N}(-\ell g,\ \sigma^2), \qquad
+  e_c \sim \mathcal{N}(0,\ \sigma^2), \qquad
+  \ell = \texttt{LATENCY\_S} = 0.1\ \text{s},
+\end{equation}
+i.e.\ $(e_E, e_N) \sim \mathcal{N}\big(-\ell g\,(\sin\psi, \cos\psi),\ \sigma^2 I_2\big)$
+--- the same $\sigma$ as the normal model, now off-centre by $\ell g$ along
+the (negative) reported track direction.
+
+\section{Heavy-tail (Gaussian mixture)}
+\begin{equation}
+  (e_E, e_N) \sim (1-w)\,\mathcal{N}(0, \sigma_1^2 I_2)
+              \ +\ w\,\mathcal{N}(0, \sigma_2^2 I_2), \qquad
+  \sigma_2 = k\sigma_1,
+\end{equation}
+with $w = \texttt{TAIL\_WEIGHT} = 0.10$, $k = \texttt{TAIL\_RATIO} = 3.0$.
+$\sigma_1$ is solved by bisection from the mixture's Rayleigh survival
+function:
+\begin{equation}
+  (1-w)\,e^{-\ci^2 / 2\sigma_1^2} + w\,e^{-\ci^2 / 2\sigma_2^2} = 0.05.
+\end{equation}
+At $\ci = 10$\,m: $\sigma_1 \approx 2.776$\,m, $\sigma_2 \approx 8.328$\,m.
+
+\section{Anisotropic Gaussian}
+\begin{equation}
+  e_a \sim \mathcal{N}(0, \sigma_a^2), \qquad
+  e_c \sim \mathcal{N}(0, \sigma_c^2) \quad \text{(independent)}, \qquad
+  \sigma_a = \rho\,\sigma_c, \quad \rho = \sqrt{\texttt{ANISO\_VAR\_RATIO}} = 3.
+\end{equation}
+There is no closed form for the radial CDF once $\sigma_a \ne \sigma_c$, so
+$\sigma_c$ is solved numerically from
+\begin{equation}
+  \int_{-\ci}^{\ci} \varphi(x; \sigma_a)
+    \left[\, 2\,\Phi\!\left(\frac{\sqrt{\ci^2 - x^2}}{\sigma_c}\right) - 1 \right] dx
+  = 0.95.
+  \label{eq:radial-cdf}
+\end{equation}
+At $\ci = 10$\,m: $\sigma_c \approx 1.675$\,m, $\sigma_a \approx 5.024$\,m
+(stdev ratio exactly 3, as required).
+
+\section{Latency + Anisotropic}
+Model~4's $(e_a, e_c)$, with the same bias as Model~2 added to the
+along-track component before rotation:
+\begin{equation}
+  e_a \sim \mathcal{N}(-\ell g,\ \sigma_a^2), \qquad
+  e_c \sim \mathcal{N}(0,\ \sigma_c^2),
+\end{equation}
+with the same $\sigma_a \approx 5.024$\,m, $\sigma_c \approx 1.675$\,m as
+Model~4.
+
+\section{Heavy-tail + Anisotropic}
+A two-component mixture where \emph{both} components share the along/cross
+ratio $\rho = 3$, and the tail component's axes are both scaled by
+$k = 3$ relative to the core component:
+\begin{equation}
+  (e_a, e_c) \sim (1-w)\,\mathcal{N}\big(0, \mathrm{diag}(\sigma_{a1}^2, \sigma_{c1}^2)\big)
+             \ +\ w\,\mathcal{N}\big(0, \mathrm{diag}(\sigma_{a2}^2, \sigma_{c2}^2)\big),
+\end{equation}
+\begin{equation}
+  \sigma_{a1} = \rho\,\sigma_{c1}, \qquad
+  \sigma_{c2} = k\,\sigma_{c1}, \qquad
+  \sigma_{a2} = \rho k\,\sigma_{c1}.
+\end{equation}
+$\sigma_{c1}$ is solved from the mixed version of Eq.~\eqref{eq:radial-cdf}:
+\begin{equation}
+  (1-w)\,\mathrm{RadialCDF}(\ci;\ \rho\sigma_{c1}, \sigma_{c1})
+  + w\,\mathrm{RadialCDF}(\ci;\ \rho k \sigma_{c1}, k\sigma_{c1}) = 0.95.
+\end{equation}
+At $\ci = 10$\,m: $\sigma_{c1} \approx 1.259$\,m, $\sigma_{a1} \approx 3.778$\,m,
+$\sigma_{c2} \approx 3.778$\,m, $\sigma_{a2} \approx 11.334$\,m.
+
+\section*{Solved parameter values}
+\begin{table}[h!]
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    \textbf{Model} & $\ci = 10$\,m & $\ci = 3$\,m \\
+    \midrule
+    Normal / Latency: $\sigma$                  & 4.085  & 1.225 \\
+    Heavy-tail: $\sigma_1$                       & 2.776  & 0.833 \\
+    Heavy-tail: $\sigma_2$                       & 8.328  & 2.498 \\
+    Anisotropic: $\sigma_c$                      & 1.675  & 0.502 \\
+    Anisotropic: $\sigma_a$                      & 5.024  & 1.507 \\
+    Heavy-tail + Anisotropic: $\sigma_{c1}$       & 1.259  & 0.378 \\
+    Heavy-tail + Anisotropic: $\sigma_{a1}$       & 3.778  & 1.133 \\
+    Heavy-tail + Anisotropic: $\sigma_{c2}$       & 3.778  & 1.133 \\
+    Heavy-tail + Anisotropic: $\sigma_{a2}$       & 11.334 & 3.400 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Solved standard deviations (metres) for both \texttt{POS\_CI95\_LEVELS}
+  used in exp3/exp4. \texttt{LATENCY\_S} = 0.1\,s, \texttt{TAIL\_RATIO} = 3,
+  \texttt{TAIL\_WEIGHT} = 0.10, \texttt{ANISO\_VAR\_RATIO} = 9 ($\rho = 3$)
+  for both.}
+\end{table}
+
+\vspace{1em}
+\begin{small}
+\noindent\textit{Source: implemented in} \texttt{sim\_models/} \texttt{noise\_distributions.py}
+\textit{(functions} \texttt{gaussian}\textit{,} \texttt{make\_mixture\_gaussian}\textit{,}
+\texttt{make\_anisotropic\_gaussian}\textit{,} \texttt{make\_anisotropic\_mixture\_gaussian}\textit{);
+constants defined in} \texttt{experiments/} \texttt{config.py}\textit{.}
+\end{small}
+
+\end{document}
