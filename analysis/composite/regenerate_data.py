@@ -62,7 +62,10 @@ LA_SEED        = 137
 PROBFAIL_SEED  = 89
 
 
-def _run_kwargs(dpsi):
+def _run_kwargs(dpsi, pos_dist=None, latency_s=0.0):
+    '''Common ``run_single`` kwargs. ``pos_dist`` / ``latency_s`` default to the
+    plain-Gaussian, zero-latency model; pass e.g. ``make_mixture_gaussian(...)``
+    to swap the position-noise distribution (see the heavy-tail composite).'''
     return dict(
         pair_width=10, pair_height=10,
         rpz=RPZ, hpz=50.0, dtlookahead=120.0,
@@ -76,6 +79,7 @@ def _run_kwargs(dpsi):
         record_history=True,
         prob_threshold=GAMMA,
         spawn_margin=1.5,
+        pos_dist=pos_dist, latency_s=latency_s,
     )
 
 
@@ -99,8 +103,8 @@ def _sanitise(res):
     return SimpleNamespace(**kw)
 
 
-def _simulate(dpsi, seed):
-    kw = _run_kwargs(dpsi)
+def _simulate(dpsi, seed, pos_dist=None, latency_s=0.0):
+    kw = _run_kwargs(dpsi, pos_dist=pos_dist, latency_s=latency_s)
     return {label: _sanitise(run_single(crr=label, seed=seed, **kw))
             for label in STRATEGIES}
 
@@ -140,65 +144,70 @@ def _pick(runs, predicate, key):
     return min(cand, key=lambda p: key(runs, p)) if cand else None
 
 
-selected = {}
+def main():
+    selected = {}
 
-# ── almost-parallel prob_wins + aggregate run (AP_SEED) ─────────────────────────────
-print(f"== almost_parallel prob_wins/aggregate (dpsi=2, seed={AP_SEED}) ==")
-ap = _simulate(dpsi=2, seed=AP_SEED)
-for lbl in STRATEGIES:
-    print(f"  IPR {lbl:<16}: {ap[lbl].ipr:.4f}")
-with open(os.path.join(DATA_DIR, "almost_parallel_runs.pkl"), "wb") as f:
-    pickle.dump(ap, f)
+    # ── almost-parallel prob_wins + aggregate run (AP_SEED) ─────────────────────────────
+    print(f"== almost_parallel prob_wins/aggregate (dpsi=2, seed={AP_SEED}) ==")
+    ap = _simulate(dpsi=2, seed=AP_SEED)
+    for lbl in STRATEGIES:
+        print(f"  IPR {lbl:<16}: {ap[lbl].ipr:.4f}")
+    with open(os.path.join(DATA_DIR, "almost_parallel_runs.pkl"), "wb") as f:
+        pickle.dump(ap, f)
 
-prob_wins = _pick(
-    ap,
-    lambda r, p: (r["cpa"].min_dist[p] < RPZ and r["double_criteria"].min_dist[p] < RPZ
-                  and r["probabilistic"].min_dist[p] >= RPZ),
-    lambda r, p: r["double_criteria"].min_dist[p])
-print(f"  prob_wins  → pair {prob_wins}  {_cpas(ap, prob_wins) if prob_wins is not None else '—'}")
+    prob_wins = _pick(
+        ap,
+        lambda r, p: (r["cpa"].min_dist[p] < RPZ and r["double_criteria"].min_dist[p] < RPZ
+                      and r["probabilistic"].min_dist[p] >= RPZ),
+        lambda r, p: r["double_criteria"].min_dist[p])
+    print(f"  prob_wins  → pair {prob_wins}  {_cpas(ap, prob_wins) if prob_wins is not None else '—'}")
 
-# ── almost-parallel prob_fails run (PROBFAIL_SEED) ──────────────────────────────────
-print(f"== almost_parallel prob_fails (dpsi=2, seed={PROBFAIL_SEED}) ==")
-ap_pf = _simulate(dpsi=2, seed=PROBFAIL_SEED)
-with open(os.path.join(DATA_DIR, "almost_parallel_probfail_runs.pkl"), "wb") as f:
-    pickle.dump(ap_pf, f)
+    # ── almost-parallel prob_fails run (PROBFAIL_SEED) ──────────────────────────────────
+    print(f"== almost_parallel prob_fails (dpsi=2, seed={PROBFAIL_SEED}) ==")
+    ap_pf = _simulate(dpsi=2, seed=PROBFAIL_SEED)
+    with open(os.path.join(DATA_DIR, "almost_parallel_probfail_runs.pkl"), "wb") as f:
+        pickle.dump(ap_pf, f)
 
-# Prob-FTR LoS, all 3 CPAs visible (< DETAIL_T_MAX); pick tightest CPA cluster
-# (most legible single encounter), tie-break on the deepest probabilistic loss.
-prob_fails = _pick(
-    ap_pf,
-    lambda r, p: r["probabilistic"].min_dist[p] < RPZ and _all_cpa_before(r, p, DETAIL_T_MAX),
-    lambda r, p: (_cpa_spread(r, p), r["probabilistic"].min_dist[p]))
+    # Prob-FTR LoS, all 3 CPAs visible (< DETAIL_T_MAX); pick tightest CPA cluster
+    # (most legible single encounter), tie-break on the deepest probabilistic loss.
+    prob_fails = _pick(
+        ap_pf,
+        lambda r, p: r["probabilistic"].min_dist[p] < RPZ and _all_cpa_before(r, p, DETAIL_T_MAX),
+        lambda r, p: (_cpa_spread(r, p), r["probabilistic"].min_dist[p]))
 
-pf_entry = _entry(ap_pf, prob_fails)
-if pf_entry is not None:
-    pf_entry["seed"] = PROBFAIL_SEED
-selected["almost_parallel"] = {"prob_wins": _entry(ap, prob_wins), "prob_fails": pf_entry}
-print(f"  prob_fails → pair {prob_fails}  "
-      f"{_cpas(ap_pf, prob_fails) if prob_fails is not None else '—'}  "
-      f"t_cpa={_t_cpas(ap_pf, prob_fails) if prob_fails is not None else '—'}")
+    pf_entry = _entry(ap_pf, prob_fails)
+    if pf_entry is not None:
+        pf_entry["seed"] = PROBFAIL_SEED
+    selected["almost_parallel"] = {"prob_wins": _entry(ap, prob_wins), "prob_fails": pf_entry}
+    print(f"  prob_fails → pair {prob_fails}  "
+          f"{_cpas(ap_pf, prob_fails) if prob_fails is not None else '—'}  "
+          f"t_cpa={_t_cpas(ap_pf, prob_fails) if prob_fails is not None else '—'}")
 
-# ── large-angle (DPSI = 90) ─────────────────────────────────────────────────────────
-print(f"== large_angle (dpsi=90, seed={LA_SEED}) ==")
-la = _simulate(dpsi=90, seed=LA_SEED)
-for lbl in STRATEGIES:
-    print(f"  IPR {lbl:<16}: {la[lbl].ipr:.4f}")
-with open(os.path.join(DATA_DIR, "large_angle_runs.pkl"), "wb") as f:
-    pickle.dump(la, f)
+    # ── large-angle (DPSI = 90) ─────────────────────────────────────────────────────────
+    print(f"== large_angle (dpsi=90, seed={LA_SEED}) ==")
+    la = _simulate(dpsi=90, seed=LA_SEED)
+    for lbl in STRATEGIES:
+        print(f"  IPR {lbl:<16}: {la[lbl].ipr:.4f}")
+    with open(os.path.join(DATA_DIR, "large_angle_runs.pkl"), "wb") as f:
+        pickle.dump(la, f)
 
-ftr_wins = _pick(
-    la,
-    lambda r, p: (r["cpa"].min_dist[p] < RPZ and r["probabilistic"].min_dist[p] < RPZ
-                  and r["double_criteria"].min_dist[p] >= RPZ),
-    lambda r, p: r["probabilistic"].min_dist[p])
-selected["large_angle"] = {
-    "ftr_wins": _entry(la, ftr_wins),
-}
-print(f"  ftr_wins   → pair {ftr_wins}  {_cpas(la, ftr_wins) if ftr_wins is not None else '—'}")
+    ftr_wins = _pick(
+        la,
+        lambda r, p: (r["cpa"].min_dist[p] < RPZ and r["probabilistic"].min_dist[p] < RPZ
+                      and r["double_criteria"].min_dist[p] >= RPZ),
+        lambda r, p: r["probabilistic"].min_dist[p])
+    selected["large_angle"] = {
+        "ftr_wins": _entry(la, ftr_wins),
+    }
+    print(f"  ftr_wins   → pair {ftr_wins}  {_cpas(la, ftr_wins) if ftr_wins is not None else '—'}")
 
-with open(os.path.join(DATA_DIR, "selected_pairs.json"), "w") as f:
-    json.dump({"rpz": RPZ, "gamma": GAMMA,
-               "seeds": {"almost_parallel": AP_SEED, "almost_parallel_probfail": PROBFAIL_SEED,
-                         "large_angle": LA_SEED},
-               "cases": selected}, f, indent=2)
-print(f"\nwrote {DATA_DIR}/selected_pairs.json")
+    with open(os.path.join(DATA_DIR, "selected_pairs.json"), "w") as f:
+        json.dump({"rpz": RPZ, "gamma": GAMMA,
+                   "seeds": {"almost_parallel": AP_SEED, "almost_parallel_probfail": PROBFAIL_SEED,
+                             "large_angle": LA_SEED},
+                   "cases": selected}, f, indent=2)
+    print(f"\nwrote {DATA_DIR}/selected_pairs.json")
+
+
+if __name__ == "__main__":
+    main()

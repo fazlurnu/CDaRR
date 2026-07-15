@@ -49,6 +49,19 @@
           "probabilistic": 143.0,
           "cpa": 143.0
         }
+      },
+      "all_safe_prob_tight": {
+        "pair": 65,
+        "cpa": {
+          "double_criteria": 59.9,
+          "probabilistic": 63.3,
+          "cpa": 101.7
+        },
+        "t_cpa": {
+          "double_criteria": 169.0,
+          "probabilistic": 160.0,
+          "cpa": 154.0
+        }
       }
     }
   }

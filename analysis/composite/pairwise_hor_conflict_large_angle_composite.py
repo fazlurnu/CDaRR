@@ -67,14 +67,18 @@ with open(PAIRS_PATH) as f:
 if entry is None:
     sys.exit("  ftr_wins: no pair satisfied the criteria (Past-CPA & Prob-FTR LoS, FTR safe).")
 
-pair = entry["pair"]
-print(f"  ftr_wins → pair {pair:03d}  {entry['cpa']}")
+# The auto-picked ftr_wins pair, plus any extra large-angle pairs to render
+# alongside it (kept explicit so the selection stays reproducible).
+EXTRA_PAIRS = [15]
+pairs = [entry["pair"]] + [p for p in EXTRA_PAIRS if p != entry["pair"]]
+print(f"  ftr_wins → pair {entry['pair']:03d}  {entry['cpa']}")
 
-dist_max = _nice_ceil(_panel_max(res_single, pair, DETAIL_T_MAX, "dist_arr"))
 dcpa_max = 450.0   # fixed projected-CPA y-limit across all columns
-traj_xlim, traj_ylim = _pair_trajectory_bbox(res_single, pair)
+for pair in pairs:
+    dist_max = _nice_ceil(_panel_max(res_single, pair, DETAIL_T_MAX, "dist_arr"))
+    traj_xlim, traj_ylim = _pair_trajectory_bbox(res_single, pair)
 
-path = plot_pair_cdr_composite(res_single, FIGURE_DIR, pair, t_max=DETAIL_T_MAX,
-                               dist_max=dist_max, dcpa_max=dcpa_max,
-                               traj_xlim=traj_xlim, traj_ylim=traj_ylim)
-print(f"    → {path}")
+    path = plot_pair_cdr_composite(res_single, FIGURE_DIR, pair, t_max=DETAIL_T_MAX,
+                                   dist_max=dist_max, dcpa_max=dcpa_max,
+                                   traj_xlim=traj_xlim, traj_ylim=traj_ylim)
+    print(f"    pair {pair:03d} → {path}")

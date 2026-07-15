@@ -19,7 +19,7 @@ import numpy as np
 _SAVE_DPI = 300
 _SAVE_FORMATS = ("png",)
 _R_EARTH = 6371000.0
-_FILE_PREFIX = "stochastic_pairwise_hor_conflict"
+_FILE_PREFIX = "fig_stochastic_pairwise_hor_conflict"
 
 # Fixed colours + display names for the strategy comparison (match FP).
 _COMPARE_COLORS = {
@@ -48,10 +48,16 @@ def set_latex_style(enable=True):
     }
     if enable:
         rc.update({
+            "text.usetex": True,
+            "pgf.texsystem": "pdflatex",
             "font.family": "serif",
             "mathtext.fontset": "cm",
-            "axes.titlesize": 11,
-            "axes.labelsize": 10,
+            "font.size": 14,
+            "axes.titlesize": 14,
+            "axes.labelsize": 14,
+            "xtick.labelsize": 14,
+            "ytick.labelsize": 14,
+            "legend.fontsize": 14,
         })
     else:
         rc.update({"mathtext.fontset": "cm"})
@@ -154,25 +160,59 @@ def _draw_dcpa_compare_shaded(ax, res, pair, dcpa_max=None):
 
 def plot_pair_cdr_composite(results_by_label, figure_dir, pair, *, t_max=None,
                             dist_max=None, dcpa_max=None, traj_xlim=None,
-                            traj_ylim=None, order=_STRATEGY_ORDER):
+                            traj_ylim=None, order=_STRATEGY_ORDER, stem=None,
+                            time_width_frac=1.0, col_width=3.3, square_traj=True):
     '''One composite figure, 3 rows × N strategy columns. Row 0 is the geometric
     ownship-centric trajectory, row 1 the actual distance vs time, row 2 the
     projected CPA distance (truth vs observed) vs time — the avoidance-active
     span is shaded on both time rows. Columns share trajectory axes and, per row,
     the time-domain y-axis, so the three strategies are compared on one identical
-    encounter. Returns the saved path.'''
+    encounter. Returns the saved path.
+
+    ``time_width_frac`` (0 < f <= 1) narrows only the two time-domain rows
+    (actual distance, projected CPA): each is centred inside its column with
+    (1-f)/2 padding on each side, so the wide square trajectory panels above are
+    left untouched. f=1.0 is the original full-width layout.
+
+    ``col_width`` sets the canvas width per column (inches). The trajectory
+    panels are aspect-locked vertical strips, so lowering it mainly trims the
+    dead horizontal whitespace and narrows the time rows without shrinking the
+    trajectories. A narrower canvas makes the whole figure a more portrait
+    aspect, so at a fixed ``\\linewidth`` LaTeX renders it taller/larger. The
+    default 3.3 gives a near-square canvas; 4.6 reproduces the old landscape
+    width.'''
     import matplotlib.pyplot as plt
     labels = [l for l in order if l in results_by_label]
     n = len(labels)
     # Row index 1 is a thin spacer that reserves room for the trajectory legend
     # (drawn between the trajectory row and the two time-domain rows).
-    fig = plt.figure(figsize=(4.6 * n, 9.8))
+    fig = plt.figure(figsize=(col_width * n, 9.3))
     gs = fig.add_gridspec(4, n, height_ratios=[1.7, 0.1, 1.0, 1.0],
-                          hspace=0.2, wspace=0.18,
-                          top=0.95, bottom=0.09, left=0.09, right=0.98)
+                          hspace=0.3, wspace=0.18,
+                          top=0.925, bottom=0.14, left=0.075, right=0.955)
     axes_traj = [fig.add_subplot(gs[0, c]) for c in range(n)]
-    axes_dist = [fig.add_subplot(gs[2, c]) for c in range(n)]
-    axes_dcpa = [fig.add_subplot(gs[3, c]) for c in range(n)]
+
+    def _time_axis(row, c):
+        # Full-width (f=1) keeps the original single-cell axis; otherwise nest a
+        # 3-column [pad, plot, pad] sub-grid so the plot is centred and narrower.
+        if time_width_frac >= 1.0:
+            return fig.add_subplot(gs[row, c])
+        pad = (1.0 - time_width_frac) / 2.0
+        sub = gs[row, c].subgridspec(1, 3, width_ratios=[pad, time_width_frac, pad],
+                                     wspace=0.0)
+        return fig.add_subplot(sub[0, 1])
+
+    axes_dist = [_time_axis(2, c) for c in range(n)]
+    axes_dcpa = [_time_axis(3, c) for c in range(n)]
+
+    # A square trajectory box under equal aspect needs equal x/y spans, so widen
+    # the shorter window symmetrically about its centre (never clips the paths).
+    tx, ty = traj_xlim, traj_ylim
+    if square_traj and tx is not None and ty is not None:
+        span = max(tx[1] - tx[0], ty[1] - ty[0])
+        xc, yc = 0.5 * (tx[0] + tx[1]), 0.5 * (ty[0] + ty[1])
+        tx = (xc - 0.5 * span, xc + 0.5 * span)
+        ty = (yc - 0.5 * span, yc + 0.5 * span)
 
     for col, l in enumerate(labels):
         res = results_by_label[l]
@@ -181,17 +221,17 @@ def plot_pair_cdr_composite(results_by_label, figure_dir, pair, *, t_max=None,
 
         # Row 0 — geometric trajectory (detect → resolve → recover → return).
         _draw_pair_trajectory(ax_traj, res, pair)
-        if traj_xlim is not None:
-            ax_traj.set_xlim(*traj_xlim)
-        if traj_ylim is not None:
-            ax_traj.set_ylim(*traj_ylim)
+        if tx is not None:
+            ax_traj.set_xlim(*tx)
+        if ty is not None:
+            ax_traj.set_ylim(*ty)
         ax_traj.set_aspect("equal", adjustable="box")
         ax_traj.set_xlabel("East [m]")
         los = res.min_dist[pair] < res.rpz
         ax_traj.set_title(
             f"{_STRATEGY_PRETTY.get(l, l)}\n"
             f"CPA = {res.min_dist[pair]:.1f} m ({'LOS' if los else 'safe'})",
-            fontsize=10, linespacing=1.6,
+            fontsize=14, linespacing=1.6,
         )
 
         # Rows 1 & 2 — time domain, recovery timing via the shaded active span.
@@ -222,7 +262,11 @@ def plot_pair_cdr_composite(results_by_label, figure_dir, pair, *, t_max=None,
 
     axes_traj[0].set_ylabel("North [m]")
     axes_dist[0].set_ylabel("Actual distance [m]")
-    axes_dcpa[0].set_ylabel("Projected dist. at CPA [m]")
+    axes_dcpa[0].set_ylabel("Projected CPA [m]")
+    # The distance row can reach thousands while the CPA row stays in hundreds,
+    # so their tick labels differ in width and the two y-labels would otherwise
+    # sit at different x. Snap the left-column y-labels to a common x-position.
+    fig.align_ylabels([axes_traj[0], axes_dist[0], axes_dcpa[0]])
 
     # Two legends: trajectory keys (+ CPA marker) under the trajectory row, the
     # time-domain keys under the bottom row. The CPA event is shown once, in the
@@ -235,12 +279,16 @@ def plot_pair_cdr_composite(results_by_label, figure_dir, pair, *, t_max=None,
                 continue
             h_time.append(h); l_time.append(lbl)
 
+    # Both legends pack all their keys onto one row, so their width tracks the
+    # canvas: shrink the font in proportion when col_width is trimmed, otherwise
+    # the entries overflow the narrower figure edges.
+    leg_fs = 14.0 * min(1.0, col_width / 4.6)
     y_traj_leg = axes_dist[0].get_position().y1 + 0.03
-    fig.legend(h_traj, l_traj, loc="center", ncol=len(l_traj), fontsize=8,
+    fig.legend(h_traj, l_traj, loc="center", ncol=len(l_traj), fontsize=leg_fs,
                bbox_to_anchor=(0.5, y_traj_leg))
-    fig.legend(h_time, l_time, loc="lower center", ncol=len(l_time), fontsize=8,
-               bbox_to_anchor=(0.5, 0.015))
-    return _write(fig, figure_dir, f"{_FILE_PREFIX}_pair{pair:03d}_cdr_composite")
+    fig.legend(h_time, l_time, loc="lower center", ncol=len(l_time), fontsize=leg_fs,
+               bbox_to_anchor=(0.5, 0.03))
+    return _write(fig, figure_dir, stem or f"{_FILE_PREFIX}_pair{pair:03d}_cdr_composite")
 
 
 def plot_avoidance_aggregate(results_by_label, figure_dir,

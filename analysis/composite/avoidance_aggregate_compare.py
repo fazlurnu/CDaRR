@@ -19,7 +19,7 @@ import pickle
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from composite_plotutils import set_latex_style, plot_avoidance_aggregate
+from composite_plotutils import set_latex_style, plot_avoidance_aggregate, _FILE_PREFIX
 
 set_latex_style("--latex" in sys.argv)
 
@@ -37,7 +37,7 @@ for scenario, fname in SCENARIOS.items():
         res_single = pickle.load(f)
     # plot_avoidance_aggregate expects {label: [run, ...]}.
     results_by_label = {label: [res] for label, res in res_single.items()}
-    name = f"stochastic_pairwise_hor_conflict_avoidance_aggregate_{scenario}.png"
+    name = f"{_FILE_PREFIX}_avoidance_aggregate_{scenario}.png"
     path = plot_avoidance_aggregate(results_by_label, FIGURE_DIR, name=name,
                                     select="all", t_max=DETAIL_T_MAX)
     print(f"  {scenario:<16} aggregate resolution flag  → {path}")

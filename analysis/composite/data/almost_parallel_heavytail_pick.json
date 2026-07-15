@@ -1,0 +1,16 @@
+{
+  "tail_ratio": 3.0,
+  "tail_weight": 0.1,
+  "pair": 52,
+  "cpa": {
+    "double_criteria": 50.5,
+    "probabilistic": 49.8,
+    "cpa": 49.3
+  },
+  "t_cpa": {
+    "double_criteria": 129.8,
+    "probabilistic": 117.0,
+    "cpa": 157.4
+  },
+  "seed": 81
+}

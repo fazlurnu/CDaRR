@@ -1,0 +1,17 @@
+{
+  "dpsi": 90.0,
+  "tail_ratio": 3.0,
+  "tail_weight": 0.1,
+  "pair": 89,
+  "cpa": {
+    "double_criteria": 56.7,
+    "probabilistic": 49.3,
+    "cpa": 172.9
+  },
+  "t_cpa": {
+    "double_criteria": 176.6,
+    "probabilistic": 176.6,
+    "cpa": 155.0
+  },
+  "seed": 73
+}
