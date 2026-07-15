@@ -175,6 +175,8 @@ def get_ipr_stochastic_env(
     latency_s: float = 0.0,
     init_speed_ownship: float = None,
     init_speed_intruder: float = None,
+    assumed_confidence_interval: float = None,
+    assumed_confidence_interval_velo: float = None,
 ):
     """
     Run a stochastic pairwise conflict simulation and compute IPR.
@@ -184,6 +186,15 @@ def get_ipr_stochastic_env(
     recovery_model : str, optional
         If provided, overrides the recovery model from the config file.
         Valid values: "CPA", "FTR", "Probabilistic FTR".
+    assumed_confidence_interval, assumed_confidence_interval_velo : float, optional
+        The position / velocity CI95 (m, m/s) the *probabilistic* recovery
+        assumes for its worldview uncertainty (``conf.sigma_r`` / ``sigma_v``),
+        decoupled from the ``confidence_interval[_velo]`` that generates the
+        actual measurement noise. ``None`` (default) keeps them matched — the
+        worldview equals the true noise, as in exp3/exp4. Set them different to
+        model a *calibration mismatch* (exp5): e.g. the system believes CI95=10 m
+        while the true noise is 15 m. Only the probabilistic recovery reads
+        these; FTR / CPA recovery are unaffected.
     pos_dist : callable, optional
         Position noise distribution ``(n, ci95, rng) -> (n, 2)`` in metres.
         ``None`` (default) uses the 2D-Gaussian model. See
@@ -243,6 +254,21 @@ def get_ipr_stochastic_env(
         confidence_interval, confidence_interval_velo, reception_prob, seed,
         pos_dist=pos_dist, latency_s=latency_s,
     )
+
+    # Probabilistic-recovery worldview uncertainty. By default it equals the true
+    # measurement noise (combined over both aircraft). When an assumed CI95 is
+    # supplied it is used instead — a deliberate mismatch between what the
+    # recovery believes and the noise actually injected (exp5). CI95->1-sigma
+    # uses the same 2.448 factor as the ADSL nodes.
+    _CI95_TO_STD_2D = 2.448
+    if assumed_confidence_interval is None:
+        sigma_r_worldview = np.sqrt(ownship_adsl.pos_std**2 + intruder_adsl.pos_std**2)
+    else:
+        sigma_r_worldview = np.sqrt(2.0) * (assumed_confidence_interval / _CI95_TO_STD_2D)
+    if assumed_confidence_interval_velo is None:
+        sigma_v_worldview = np.sqrt(ownship_adsl.vel_std**2 + intruder_adsl.vel_std**2)
+    else:
+        sigma_v_worldview = np.sqrt(2.0) * (assumed_confidence_interval_velo / _CI95_TO_STD_2D)
 
     # ----------------------------
     # Simulation loop
@@ -315,8 +341,8 @@ def get_ipr_stochastic_env(
                 asas_marh
             )
 
-            conf_detection.sigma_r = np.sqrt(ownship_adsl.pos_std**2 + intruder_adsl.pos_std**2)
-            conf_detection.sigma_v = np.sqrt(ownship_adsl.vel_std**2 + intruder_adsl.vel_std**2)
+            conf_detection.sigma_r = sigma_r_worldview
+            conf_detection.sigma_v = sigma_v_worldview
             conf_detection.dcpa_prob_threshold = threshold_probability
 
             delpairs_noise = conf_recovery(conf_resolution, conf_detection, ownship_adsl, intruder_adsl)
