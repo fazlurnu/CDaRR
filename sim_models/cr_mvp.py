@@ -4,6 +4,131 @@ from bluesky import stack
 import bluesky as bs
 from bluesky.core import Entity
 
+
+def mvp_pair(ownship, intruder, conf, qdr, dist, tcpa, tLOS, idx1, idx2, resofach, resofacv):
+    """Modified Voltage Potential (MVP) resolution for a single conflict pair.
+
+    Pure: reads only its arguments. Returns (dv, tsolV) -- the 3D resolution
+    velocity [dv_east, dv_north, dv_vert] for the ownship, and the vertical
+    time-to-solve. Verbatim body of the former ``MVP.MVP`` method.
+    """
+    # Preliminary calculations-------------------------------------------------
+    rpz_m = np.max(conf.rpz[[idx1, idx2]] * resofach)
+    hpz_m = np.max(conf.hpz[[idx1, idx2]] * resofacv)
+    dtlook = conf.dtlookahead[idx1]
+    qdr = np.radians(qdr)
+
+    # Relative position vector between id1 and id2
+    drel = np.array([np.sin(qdr) * dist,
+                     np.cos(qdr) * dist,
+                     intruder.alt[idx2] - ownship.alt[idx1]])
+
+    # Relative velocity vector
+    v1 = np.array([ownship.gseast[idx1], ownship.gsnorth[idx1], ownship.vs[idx1]])
+    v2 = np.array([intruder.gseast[idx2], intruder.gsnorth[idx2], intruder.vs[idx2]])
+    vrel = v2 - v1
+
+    # Horizontal resolution----------------------------------------------------
+
+    dcpa  = drel + vrel * tcpa
+    dabsH = np.sqrt(dcpa[0] * dcpa[0] + dcpa[1] * dcpa[1])
+
+    iH = rpz_m - dabsH
+
+    threshold = 0.001
+    if dabsH <= threshold:
+        dabsH = threshold
+        dcpa[0] = drel[1] / dist * dabsH
+        dcpa[1] = -drel[0] / dist * dabsH
+
+    if rpz_m < dist and dabsH < dist:
+        erratum = np.cos(np.arcsin(rpz_m / dist) - np.arcsin(dabsH / dist))
+        dv1 = ((rpz_m / erratum - dabsH) * dcpa[0]) / (abs(tcpa) * dabsH)
+        dv2 = ((rpz_m / erratum - dabsH) * dcpa[1]) / (abs(tcpa) * dabsH)
+    else:
+        dv1 = (iH * dcpa[0]) / (abs(tcpa) * dabsH)
+        dv2 = (iH * dcpa[1]) / (abs(tcpa) * dabsH)
+
+    # Vertical resolution------------------------------------------------------
+
+    iV = hpz_m if abs(vrel[2]) > 0.0 else hpz_m - abs(drel[2])
+    tsolV = abs(drel[2] / vrel[2]) if abs(vrel[2]) > 0.0 else tLOS
+
+    if tsolV > dtlook:
+        tsolV = tLOS
+        iV = hpz_m
+
+    dv3 = np.where(abs(vrel[2]) > 0.0,
+                   (iV / tsolV) * (-vrel[2] / abs(vrel[2])),
+                   (iV / tsolV))
+
+    dv = np.array([dv1, dv2, dv3])
+    return dv, tsolV
+
+
+def select_command(newv, ownship, swresohoriz, swresospd, swresohdg, swresovert):
+    """Select (newtrack, newgs, newvs) from the resolved cartesian velocity
+    ``newv`` (shape (3, ntraf)), per the configured resolution-direction
+    switches. Pure; preserves every branch of the former inline logic in
+    ``MVP.resolve`` exactly (SPD-only / HDG-only / SPD+HDG / vertical-only /
+    horizontal+vertical).
+    """
+    if swresohoriz:  # horizontal resolutions
+        if swresospd and not swresohdg:  # SPD only
+            newtrack = ownship.trk
+            newgs    = np.sqrt(newv[0, :]**2 + newv[1, :]**2)
+            newvs    = ownship.vs
+        elif swresohdg and not swresospd:  # HDG only
+            newtrack = (np.arctan2(newv[0, :], newv[1, :]) * 180 / np.pi) % 360
+            newgs    = ownship.gs
+            newvs    = ownship.vs
+        else:  # SPD + HDG
+            newtrack = (np.arctan2(newv[0, :], newv[1, :]) * 180 / np.pi) % 360
+            newgs    = np.sqrt(newv[0, :]**2 + newv[1, :]**2)
+            newvs    = ownship.vs
+    elif swresovert:  # vertical resolutions
+        newtrack = ownship.trk
+        newgs    = ownship.gs
+        newvs    = newv[2, :]
+    else:  # horizontal + vertical
+        newtrack = (np.arctan2(newv[0, :], newv[1, :]) * 180 / np.pi) % 360
+        newgs    = np.sqrt(newv[0, :]**2 + newv[1, :]**2)
+        newvs    = newv[2, :]
+    return newtrack, newgs, newvs
+
+
+def cap_velocities(newgs, newvs, perf):
+    """Clamp ground speed and vertical speed to the aircraft performance envelope."""
+    newgscapped = np.maximum(perf.vmin, np.minimum(perf.vmax, newgs))
+    vscapped = np.maximum(perf.vsmin, np.minimum(perf.vsmax, newvs))
+    return newgscapped, vscapped
+
+
+def resolve_altitude(ownship, vscapped, timesolveV, dtlookahead, dv_vert, swresohoriz):
+    """ASAS altitude command.
+
+    Follows the projected vertical-resolve altitude when its direction agrees
+    with the direction toward the selected altitude, only while the aircraft is
+    actually inside a vertical conflict (``timesolveV < dtlookahead`` and
+    ``dv_vert`` nonzero); otherwise keeps the selected altitude.
+    Horizontal-only resolutions (``swresohoriz`` truthy) always keep the
+    selected altitude -- preserved via the original blend-weight form
+    (``alt * (1 - swresohoriz) + selalt * swresohoriz``) rather than an
+    if/else, since ``swresohoriz`` here is used as a 0/1 weight, not just a
+    bool.
+    """
+    asasalttemp = vscapped * timesolveV + ownship.alt
+    signdvs = np.sign(vscapped - ownship.ap.vs * np.sign(ownship.selalt - ownship.alt))
+    signalt = np.sign(asasalttemp - ownship.selalt)
+    alt = np.where(np.logical_or(signdvs == 0, signdvs == signalt), asasalttemp, ownship.selalt)
+
+    altCondition = np.logical_and(timesolveV < dtlookahead, np.abs(dv_vert) > 0.0)
+    alt[altCondition] = asasalttemp[altCondition]
+
+    alt = alt * (1 - swresohoriz) + ownship.selalt * swresohoriz
+    return alt
+
+
 class MVP(Entity):
     """ 
     Conflict Resolution - Modified Voltage Potential
@@ -178,7 +303,7 @@ class MVP(Entity):
         # here always update the resolution factor for horizontal
         # might be handy for future implementations when resofach
         # can change durting simulation
-        
+
         self.resofach = resofach
         ''' Resolve all current conflicts '''
         # Initialize an array to store the resolution velocity vector for all A/C
@@ -195,7 +320,8 @@ class MVP(Entity):
             # If A/C indexes are found, then apply MVP on this conflict pair
             # Because ADSB is ON, this is done for each aircraft separately
             if idx1 > -1 and idx2 > -1:
-                dv_mvp, tsolV = self.MVP(ownship, intruder, conf, qdr, dist, tcpa, tLOS, idx1, idx2)
+                dv_mvp, tsolV = mvp_pair(ownship, intruder, conf, qdr, dist, tcpa, tLOS, idx1, idx2,
+                                          self.resofach, self.resofacv)
                 if tsolV < timesolveV[idx1]:
                     timesolveV[idx1] = tsolV
 
@@ -224,104 +350,12 @@ class MVP(Entity):
         newv = v + dv
 
         # Limit resolution direction if required-----------------------------------
-
-        # Compute new speed vector in polar coordinates based on desired resolution
-        if self.swresohoriz:  # horizontal resolutions
-            if self.swresospd and not self.swresohdg:  # SPD only
-                newtrack = ownship.trk
-                newgs    = np.sqrt(newv[0, :]**2 + newv[1, :]**2)
-                newvs    = ownship.vs
-            elif self.swresohdg and not self.swresospd:  # HDG only
-                newtrack = (np.arctan2(newv[0, :], newv[1, :]) * 180 / np.pi) % 360
-                newgs    = ownship.gs
-                newvs    = ownship.vs
-            else:  # SPD + HDG
-                newtrack = (np.arctan2(newv[0, :], newv[1, :]) * 180 / np.pi) % 360
-                newgs    = np.sqrt(newv[0, :]**2 + newv[1, :]**2)
-                newvs    = ownship.vs
-        elif self.swresovert:  # vertical resolutions
-            newtrack = ownship.trk
-            newgs    = ownship.gs
-            newvs    = newv[2, :]
-        else:  # horizontal + vertical
-            newtrack = (np.arctan2(newv[0, :], newv[1, :]) * 180 / np.pi) % 360
-            newgs    = np.sqrt(newv[0, :]**2 + newv[1, :]**2)
-            newvs    = newv[2, :]
+        newtrack, newgs, newvs = select_command(
+            newv, ownship, self.swresohoriz, self.swresospd, self.swresohdg, self.swresovert)
 
         # Determine ASAS module commands for all aircraft--------------------------
+        newgscapped, vscapped = cap_velocities(newgs, newvs, ownship.perf)
 
-        # Cap the velocity
-        newgscapped = np.maximum(ownship.perf.vmin, np.minimum(ownship.perf.vmax, newgs))
-
-        # Cap the vertical speed
-        vscapped = np.maximum(ownship.perf.vsmin, np.minimum(ownship.perf.vsmax, newvs))
-
-        # Calculate if Autopilot selected altitude should be followed.
-        asasalttemp = vscapped * timesolveV + ownship.alt
-        signdvs = np.sign(vscapped - ownship.ap.vs * np.sign(ownship.selalt - ownship.alt))
-        signalt = np.sign(asasalttemp - ownship.selalt)
-        alt = np.where(np.logical_or(signdvs == 0, signdvs == signalt), asasalttemp, ownship.selalt)
-
-        # Only update asas alt when actually in conflict
-        altCondition = np.logical_and(timesolveV < conf.dtlookahead, np.abs(dv[2, :]) > 0.0)
-        alt[altCondition] = asasalttemp[altCondition]
-
-        # If resolutions are limited in horizontal direction, keep alt at selected alt
-        alt = alt * (1 - self.swresohoriz) + ownship.selalt * self.swresohoriz
+        alt = resolve_altitude(ownship, vscapped, timesolveV, conf.dtlookahead, dv[2, :], self.swresohoriz)
 
         return newtrack, newgscapped, vscapped, alt, self.resopairs
-
-    def MVP(self, ownship, intruder, conf, qdr, dist, tcpa, tLOS, idx1, idx2):
-        """Modified Voltage Potential (MVP) resolution method"""
-        # Preliminary calculations-------------------------------------------------
-        rpz_m = np.max(conf.rpz[[idx1, idx2]] * self.resofach)
-        hpz_m = np.max(conf.hpz[[idx1, idx2]] * self.resofacv)
-        dtlook = conf.dtlookahead[idx1]
-        qdr = np.radians(qdr)
-
-        # Relative position vector between id1 and id2
-        drel = np.array([np.sin(qdr) * dist,
-                         np.cos(qdr) * dist,
-                         intruder.alt[idx2] - ownship.alt[idx1]])
-
-        # Relative velocity vector
-        v1 = np.array([ownship.gseast[idx1], ownship.gsnorth[idx1], ownship.vs[idx1]])
-        v2 = np.array([intruder.gseast[idx2], intruder.gsnorth[idx2], intruder.vs[idx2]])
-        vrel = v2 - v1
-
-        # Horizontal resolution----------------------------------------------------
-
-        dcpa  = drel + vrel * tcpa
-        dabsH = np.sqrt(dcpa[0] * dcpa[0] + dcpa[1] * dcpa[1])
-
-        iH = rpz_m - dabsH
-
-        threshold = 0.001
-        if dabsH <= threshold:
-            dabsH = threshold
-            dcpa[0] = drel[1] / dist * dabsH
-            dcpa[1] = -drel[0] / dist * dabsH
-
-        if rpz_m < dist and dabsH < dist:
-            erratum = np.cos(np.arcsin(rpz_m / dist) - np.arcsin(dabsH / dist))
-            dv1 = ((rpz_m / erratum - dabsH) * dcpa[0]) / (abs(tcpa) * dabsH)
-            dv2 = ((rpz_m / erratum - dabsH) * dcpa[1]) / (abs(tcpa) * dabsH)
-        else:
-            dv1 = (iH * dcpa[0]) / (abs(tcpa) * dabsH)
-            dv2 = (iH * dcpa[1]) / (abs(tcpa) * dabsH)
-
-        # Vertical resolution------------------------------------------------------
-
-        iV = hpz_m if abs(vrel[2]) > 0.0 else hpz_m - abs(drel[2])
-        tsolV = abs(drel[2] / vrel[2]) if abs(vrel[2]) > 0.0 else tLOS
-
-        if tsolV > dtlook:
-            tsolV = tLOS
-            iV = hpz_m
-
-        dv3 = np.where(abs(vrel[2]) > 0.0,
-                       (iV / tsolV) * (-vrel[2] / abs(vrel[2])),
-                       (iV / tsolV))
-
-        dv = np.array([dv1, dv2, dv3])
-        return dv, tsolV
