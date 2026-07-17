@@ -11,6 +11,167 @@ from shapely.ops import nearest_points
 import numpy as np
 from math import *
 
+
+def get_cc_tp(ownship_position, intruder_position, rpz):
+    """Tangent points of the collision-cone circle (radius rpz, centred on
+    intruder_position) as seen from ownship_position. Pure -- never touched
+    `self` even as a method; only made module-level here."""
+    dx = intruder_position.x - ownship_position.x
+    dy = intruder_position.y - ownship_position.y
+
+    # print("Body frame: ", dx, dy)
+
+    d = sqrt(dx**2 + dy**2)
+
+    if(d > rpz):
+        theta = atan2(dy, dx)
+        beta = asin(rpz/d)
+        side = sqrt(d**2 - rpz**2)
+
+        tp_1_x = ownship_position.x + side * cos(theta - beta)
+        tp_1_y = ownship_position.y + side * sin(theta - beta)
+        tp_2_x = ownship_position.x + side * cos(theta + beta)
+        tp_2_y = ownship_position.y + side * sin(theta + beta)
+
+        return Point(tp_1_x, tp_1_y), Point(tp_2_x, tp_2_y)
+
+    else:
+        return None, None
+
+
+def vo_pair(ownship, intruder, conf, qdr, dist, tLOS, idx1, idx2, resofach, resofacv):
+    """Velocity-Obstacle (VO) resolution for a single conflict pair.
+
+    Pure: reads only its arguments. Returns (dv, tsolV) -- the 3D resolution
+    velocity [dv_east, dv_north, dv_vert] for the ownship, and the vertical
+    time-to-solve. Verbatim body of the former ``VO.VO`` method.
+    """
+    ##ownship_position, ownship_gs, ownship_trk,
+    ##   intruder_position, intruder_gs, intruder_trk,
+    ##   rpz, method = 0):
+
+    rpz = np.max(conf.rpz[[idx1, idx2]] * resofach)
+    hpz = np.max(conf.hpz[[idx1, idx2]] * resofacv)
+    dtlook = conf.dtlookahead[idx1]
+
+    # Convert qdr from degrees to radians
+    qdr = np.radians(qdr)
+
+    # Relative position vector between id1 and id2
+    drel = np.array([np.sin(qdr) * dist, \
+                    np.cos(qdr) * dist, \
+                    intruder.alt[idx2] - ownship.alt[idx1]])
+
+    ownship_position = Point(0, 0)
+
+    intruder_position = Point(drel[1], drel[0])
+
+
+    tp_1, tp_2 = get_cc_tp(ownship_position, intruder_position, rpz)
+
+    ownship_velocity = Point(ownship.gsnorth[idx1], ownship.gseast[idx1])
+    intruder_velocity = Point(intruder.gsnorth[idx2], intruder.gseast[idx2])
+
+    method = 0
+
+    if (tp_1 is not None) and (tp_2 is not None):
+        vo_0 = translate(ownship_position, xoff = intruder_velocity.x, yoff = intruder_velocity.y)
+        vo_1 = translate(tp_1, xoff = intruder_velocity.x, yoff = intruder_velocity.y)
+        vo_2 = translate(tp_2, xoff = intruder_velocity.x, yoff = intruder_velocity.y)
+
+        vo_line_1 = LineString([vo_0, vo_1])
+        vo_line_2 = LineString([vo_0, vo_2])
+
+        # method = 0: opt, 1: spd change, 2: hdg change
+        if(method == 0):
+            cp_1 = nearest_points(vo_line_1, ownship_velocity)[0]
+            cp_2 = nearest_points(vo_line_2, ownship_velocity)[0]
+
+            cp_1_dist = cp_1.distance(ownship_velocity)
+            cp_2_dist = cp_2.distance(ownship_velocity)
+
+            if(cp_1_dist <= cp_2_dist):
+                cp = cp_1
+            else:
+                cp = cp_2
+
+        dv1 = ownship_velocity.y - cp.y
+        dv2 = ownship_velocity.x - cp.x
+
+    else:
+        dv1 = 0
+        dv2 = 0
+
+    # Vertical resolution
+    vrel_vs = ownship.vs[idx1] - intruder.vs[idx2]
+
+    iV = hpz if abs(vrel_vs) > 0.0 else hpz - abs(drel[2])
+    tsolV = abs(drel[2] / vrel_vs) if abs(vrel_vs) > 0.0 else tLOS
+
+    if tsolV > dtlook:
+        tsolV = tLOS
+        iV = hpz
+
+    dv3 = (iV / tsolV) * (-vrel_vs / abs(vrel_vs)) if abs(vrel_vs) > 0.0 else (iV / tsolV)
+
+    dv = np.array([dv1, dv2, dv3])
+
+    return dv, tsolV
+
+
+def select_command(newv, ownship, swresohoriz, swresospd, swresohdg, swresovert):
+    """Select (newtrack, newgs, newvs) from the resolved cartesian velocity
+    ``newv`` (shape (3, ntraf)), per the configured resolution-direction
+    switches. Pure; preserves every branch of the former inline logic in
+    ``VO.resolve`` exactly. Formula-identical to cr_mvp.py's helper of the
+    same name -- kept as a separate local copy in Phase 1 (unified in the
+    Phase 2 cr/common.py module, once both files are pure)."""
+    if swresohoriz: # horizontal resolutions
+        if swresospd and not swresohdg: # SPD only
+            newtrack = ownship.trk
+            newgs    = np.sqrt(newv[0,:]**2 + newv[1,:]**2)
+            newvs    = ownship.vs
+        elif swresohdg and not swresospd: # HDG only
+            newtrack = (np.arctan2(newv[0,:],newv[1,:])*180/np.pi) % 360
+            newgs    = ownship.gs
+            newvs    = ownship.vs
+        else: # SPD + HDG
+            newtrack = (np.arctan2(newv[0,:],newv[1,:])*180/np.pi) %360
+            newgs    = np.sqrt(newv[0,:]**2 + newv[1,:]**2)
+            newvs    = ownship.vs
+    elif swresovert: # vertical resolutions
+        newtrack = ownship.trk
+        newgs    = ownship.gs
+        newvs    = newv[2,:]
+    else: # horizontal + vertical
+        newtrack = (np.arctan2(newv[0,:],newv[1,:])*180/np.pi) %360
+        newgs    = np.sqrt(newv[0,:]**2 + newv[1,:]**2)
+        newvs    = newv[2,:]
+    return newtrack, newgs, newvs
+
+
+def cap_velocities(newgs, newvs, perf):
+    """Clamp ground speed and vertical speed to the aircraft performance envelope."""
+    newgscapped = np.maximum(perf.vmin,np.minimum(perf.vmax,newgs))
+    vscapped = np.maximum(perf.vsmin,np.minimum(perf.vsmax,newvs))
+    return newgscapped, vscapped
+
+
+def resolve_altitude(ownship, vscapped, timesolveV, dtlookahead, dv_vert, swresohoriz):
+    """ASAS altitude command (see cr_mvp.py's helper of the same name for the
+    full rationale -- identical formula here)."""
+    asasalttemp = vscapped * timesolveV + ownship.alt
+    signdvs = np.sign(vscapped - ownship.ap.vs * np.sign(ownship.selalt - ownship.alt))
+    signalt = np.sign(asasalttemp - ownship.selalt)
+    alt = np.where(np.logical_or(signdvs == 0, signdvs == signalt), asasalttemp, ownship.selalt)
+
+    altCondition = np.logical_and(timesolveV<dtlookahead, np.abs(dv_vert)>0.0)
+    alt[altCondition] = asasalttemp[altCondition]
+
+    alt = alt * (1 - swresohoriz) + ownship.selalt * swresohoriz
+    return alt
+
+
 class VO(Entity):
     """ 
     Conflict Resolution - Modified Voltage Potential
@@ -517,7 +678,8 @@ class VO(Entity):
             # If A/C indexes are found, then apply vo on this conflict pair
             # Because ADSB is ON, this is done for each aircraft separately
             if idx1 >-1 and idx2 > -1:
-                dv_vo, tsolV = self.VO(ownship, intruder, conf, qdr, dist, tLOS, idx1, idx2)
+                dv_vo, tsolV = vo_pair(ownship, intruder, conf, qdr, dist, tLOS, idx1, idx2,
+                                        self.resofach, self.resofacv)
 
                 # print("dv_vo, ", dv_vo)
                 if tsolV < timesolveV[idx1]:
@@ -553,157 +715,14 @@ class VO(Entity):
         newv = v + dv
 
         # Limit resolution direction if required-----------------------------------
-
-        # Compute new speed vector in polar coordinates based on desired resolution
-        if self.swresohoriz: # horizontal resolutions
-            if self.swresospd and not self.swresohdg: # SPD only
-                newtrack = ownship.trk
-                newgs    = np.sqrt(newv[0,:]**2 + newv[1,:]**2)
-                newvs    = ownship.vs
-            elif self.swresohdg and not self.swresospd: # HDG only
-                newtrack = (np.arctan2(newv[0,:],newv[1,:])*180/np.pi) % 360
-                newgs    = ownship.gs
-                newvs    = ownship.vs
-            else: # SPD + HDG
-                newtrack = (np.arctan2(newv[0,:],newv[1,:])*180/np.pi) %360
-                newgs    = np.sqrt(newv[0,:]**2 + newv[1,:]**2)
-                newvs    = ownship.vs
-        elif self.swresovert: # vertical resolutions
-            newtrack = ownship.trk
-            newgs    = ownship.gs
-            newvs    = newv[2,:]
-        else: # horizontal + vertical
-            newtrack = (np.arctan2(newv[0,:],newv[1,:])*180/np.pi) %360
-            newgs    = np.sqrt(newv[0,:]**2 + newv[1,:]**2)
-            newvs    = newv[2,:]
+        newtrack, newgs, newvs = select_command(
+            newv, ownship, self.swresohoriz, self.swresospd, self.swresohdg, self.swresovert)
 
         # Determine ASAS module commands for all aircraft--------------------------
+        newgscapped, vscapped = cap_velocities(newgs, newvs, ownship.perf)
 
-        # Cap the velocity
-        newgscapped = np.maximum(ownship.perf.vmin,np.minimum(ownship.perf.vmax,newgs))
-
-        # Cap the vertical speed
-        vscapped = np.maximum(ownship.perf.vsmin,np.minimum(ownship.perf.vsmax,newvs))
-
-        # Calculate if Autopilot selected altitude should be followed. This avoids ASAS from
-        # climbing or descending longer than it needs to if the autopilot leveloff
-        # altitude also resolves the conflict. Because asasalttemp is calculated using
-        # the time to resolve, it may result in climbing or descending more than the selected
-        # altitude.
-        asasalttemp = vscapped * timesolveV + ownship.alt
-        signdvs = np.sign(vscapped - ownship.ap.vs * np.sign(ownship.selalt - ownship.alt))
-        signalt = np.sign(asasalttemp - ownship.selalt)
-        alt = np.where(np.logical_or(signdvs == 0, signdvs == signalt), asasalttemp, ownship.selalt)
-
-        # To compute asas alt, timesolveV is used. timesolveV is a really big value (1e9)
-        # when there is no conflict. Therefore asas alt is only updated when its
-        # value is less than the look-ahead time, because for those aircraft are in conflict
-        altCondition = np.logical_and(timesolveV<conf.dtlookahead, np.abs(dv[2,:])>0.0)
-        alt[altCondition] = asasalttemp[altCondition]
-
-        # If resolutions are limited in the horizontal direction, then asasalt should
-        # be equal to auto pilot alt (aalt). This is to prevent a new asasalt being computed
-        # using the auto pilot vertical speed (ownship.avs) using the code in line 106 (asasalttemp) when only
-        # horizontal resolutions are allowed.
-        alt = alt * (1 - self.swresohoriz) + ownship.selalt * self.swresohoriz
+        alt = resolve_altitude(ownship, vscapped, timesolveV, conf.dtlookahead, dv[2,:], self.swresohoriz)
 
         self.resumenav(conf, ownship, intruder)
 
         return newtrack, newgscapped, vscapped, alt, self.resopairs
-
-    def get_cc_tp(self, ownship_position, intruder_position, rpz):
-        dx = intruder_position.x - ownship_position.x
-        dy = intruder_position.y - ownship_position.y
-
-        # print("Body frame: ", dx, dy)
-
-        d = sqrt(dx**2 + dy**2)
-
-        if(d > rpz):
-            theta = atan2(dy, dx)
-            beta = asin(rpz/d)
-            side = sqrt(d**2 - rpz**2)
-
-            tp_1_x = ownship_position.x + side * cos(theta - beta)
-            tp_1_y = ownship_position.y + side * sin(theta - beta)
-            tp_2_x = ownship_position.x + side * cos(theta + beta)
-            tp_2_y = ownship_position.y + side * sin(theta + beta)
-
-            return Point(tp_1_x, tp_1_y), Point(tp_2_x, tp_2_y)
-        
-        else:
-            return None, None
-        
-    def VO(self, ownship, intruder, conf, qdr, dist, tLOS, idx1, idx2):
-        
-        ##ownship_position, ownship_gs, ownship_trk,
-        ##   intruder_position, intruder_gs, intruder_trk,
-        ##   rpz, method = 0):
-
-        rpz = np.max(conf.rpz[[idx1, idx2]] * self.resofach)
-        hpz = np.max(conf.hpz[[idx1, idx2]] * self.resofacv)
-        dtlook = conf.dtlookahead[idx1]
-
-        # Convert qdr from degrees to radians
-        qdr = np.radians(qdr)
-
-        # Relative position vector between id1 and id2
-        drel = np.array([np.sin(qdr) * dist, \
-                        np.cos(qdr) * dist, \
-                        intruder.alt[idx2] - ownship.alt[idx1]])
-
-        ownship_position = Point(0, 0)
-
-        intruder_position = Point(drel[1], drel[0])
-
-
-        tp_1, tp_2 = self.get_cc_tp(ownship_position, intruder_position, rpz)
-
-        ownship_velocity = Point(ownship.gsnorth[idx1], ownship.gseast[idx1])
-        intruder_velocity = Point(intruder.gsnorth[idx2], intruder.gseast[idx2])
-
-        method = 0
-
-        if (tp_1 is not None) and (tp_2 is not None):
-            vo_0 = translate(ownship_position, xoff = intruder_velocity.x, yoff = intruder_velocity.y)
-            vo_1 = translate(tp_1, xoff = intruder_velocity.x, yoff = intruder_velocity.y)
-            vo_2 = translate(tp_2, xoff = intruder_velocity.x, yoff = intruder_velocity.y)
-
-            vo_line_1 = LineString([vo_0, vo_1])
-            vo_line_2 = LineString([vo_0, vo_2])
-
-            # method = 0: opt, 1: spd change, 2: hdg change
-            if(method == 0):
-                cp_1 = nearest_points(vo_line_1, ownship_velocity)[0]
-                cp_2 = nearest_points(vo_line_2, ownship_velocity)[0]
-
-                cp_1_dist = cp_1.distance(ownship_velocity)
-                cp_2_dist = cp_2.distance(ownship_velocity)
-
-                if(cp_1_dist <= cp_2_dist):
-                    cp = cp_1
-                else:
-                    cp = cp_2
-
-            dv1 = ownship_velocity.y - cp.y
-            dv2 = ownship_velocity.x - cp.x
-
-        else:
-            dv1 = 0
-            dv2 = 0
-
-        # Vertical resolution
-        vrel_vs = ownship.vs[idx1] - intruder.vs[idx2]
-
-        iV = hpz if abs(vrel_vs) > 0.0 else hpz - abs(drel[2])
-        tsolV = abs(drel[2] / vrel_vs) if abs(vrel_vs) > 0.0 else tLOS
-
-        if tsolV > dtlook:
-            tsolV = tLOS
-            iV = hpz
-
-        dv3 = (iV / tsolV) * (-vrel_vs / abs(vrel_vs)) if abs(vrel_vs) > 0.0 else (iV / tsolV)
-
-        dv = np.array([dv1, dv2, dv3])
-
-        return dv, tsolV
