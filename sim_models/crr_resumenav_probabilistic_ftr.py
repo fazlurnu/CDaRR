@@ -225,6 +225,28 @@ def analytical_past_cpa_prob(mu_rel, Sigma_rel, nu_rel, Sigma_nu, eps=1e-12):
 # -------------------------
 # Recovery method
 # -------------------------
+def probabilistic_ftr_release_decision(mu_r, Sigma_r, Sigma_v, rpz,
+                                        Vo_u, Vo_v, Vi_c_u, Vi_c_v, Vi_i_u, Vi_i_v,
+                                        prob_threshold, Ktheta):
+    ''' Probabilistic double-criteria release decision for one conflict pair.
+
+    Pure. True iff BOTH: (1) P(DCPA > rpz | intruder keeps current velocity) >
+    prob_threshold, and (2) the same assuming the intruder reverts to its
+    velocity at conflict initiation.
+    '''
+    # Criterion 1: intruder maintains current velocity (Vi,c)
+    mu_v1 = np.array([Vo_u - Vi_c_u, Vo_v - Vi_c_v], dtype=float)
+    p1 = analytical_dcpa_prob_gt(rpz, mu_r, Sigma_r, mu_v1, Sigma_v, Ktheta=Ktheta)
+    crit1 = (p1 > prob_threshold)
+
+    # Criterion 2: intruder reverts to initial velocity (Vi,i)
+    mu_v2 = np.array([Vo_u - float(Vi_i_u), Vo_v - float(Vi_i_v)], dtype=float)
+    p2 = analytical_dcpa_prob_gt(rpz, mu_r, Sigma_r, mu_v2, Sigma_v, Ktheta=Ktheta)
+    crit2 = (p2 > prob_threshold)
+
+    return crit1 and crit2
+
+
 def resumenav_probabilistic_ftr(reso, conf, ownship, intruder):
     """
     Probabilistic version of resumenav_double_criteria:
@@ -283,21 +305,15 @@ def resumenav_probabilistic_ftr(reso, conf, ownship, intruder):
 
         Vi_c_u = float(intruder.gseast[idx2])
         Vi_c_v = float(intruder.gsnorth[idx2])
+        Vi_i_u, Vi_i_v = reso._intr_init_vel.get(conflict, (Vi_c_u, Vi_c_v))
 
         mu_r = np.array([dx, dy], dtype=float)
 
-        # Criterion 1: intruder maintains current velocity (Vi,c)
-        mu_v1 = np.array([Vo_u - Vi_c_u, Vo_v - Vi_c_v], dtype=float)
-        p1 = analytical_dcpa_prob_gt(rpz, mu_r, Sigma_r, mu_v1, Sigma_v, Ktheta=Ktheta)
-        crit1 = (p1 > prob_threshold)
+        release = probabilistic_ftr_release_decision(
+            mu_r, Sigma_r, Sigma_v, rpz, Vo_u, Vo_v, Vi_c_u, Vi_c_v, Vi_i_u, Vi_i_v,
+            prob_threshold, Ktheta)
 
-        # Criterion 2: intruder reverts to initial velocity (Vi,i)
-        Vi_i_u, Vi_i_v = reso._intr_init_vel.get(conflict, (Vi_c_u, Vi_c_v))
-        mu_v2 = np.array([Vo_u - float(Vi_i_u), Vo_v - float(Vi_i_v)], dtype=float)
-        p2 = analytical_dcpa_prob_gt(rpz, mu_r, Sigma_r, mu_v2, Sigma_v, Ktheta=Ktheta)
-        crit2 = (p2 > prob_threshold)
-
-        if crit1 and crit2:
+        if release:
             delpairs.add(conflict)
             reso._intr_init_vel.pop(conflict, None)
             changeactive[idx1] = changeactive.get(idx1, False)

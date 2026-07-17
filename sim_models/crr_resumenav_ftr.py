@@ -20,6 +20,28 @@ def calculate_dcpa(dx, dy, du, dv):
     return float(np.sqrt(dcpa2)), float(tcpa)
 
 
+def ftr_release_decision(dx, dy, rpz, Vo_u, Vo_v, Vi_c_u, Vi_c_v, Vi_i_u, Vi_i_v):
+    ''' Double-criteria FTR release decision for one conflict pair.
+
+    Pure. True iff BOTH: (1) the projected CPA stays outside rpz assuming the
+    intruder holds its current velocity (Vi,c), and (2) the same assuming the
+    intruder reverts to its velocity at conflict initiation (Vi,i).
+    '''
+    # Criterion 1: intruder maintains current velocity (Vi,c)
+    du1 = Vo_u - Vi_c_u
+    dv1 = Vo_v - Vi_c_v
+    Dcpa1, _ = calculate_dcpa(dx, dy, du1, dv1)
+    crit1 = Dcpa1 > rpz
+
+    # Criterion 2: intruder reverts to initial velocity (Vi,i) logged at start
+    du2 = Vo_u - Vi_i_u
+    dv2 = Vo_v - Vi_i_v
+    Dcpa2, _ = calculate_dcpa(dx, dy, du2, dv2)
+    crit2 = Dcpa2 > rpz
+
+    return crit1 and crit2
+
+
 def resumenav_double_criteria(reso, conf, ownship, intruder):
     record_initial_intruder_velocity(reso, conf, intruder)
 
@@ -49,21 +71,11 @@ def resumenav_double_criteria(reso, conf, ownship, intruder):
 
         Vi_c_u = float(intruder.gseast[idx2])
         Vi_c_v = float(intruder.gsnorth[idx2])
-
-        # Criterion 1: intruder maintains current velocity (Vi,c)
-        du1 = Vo_u - Vi_c_u
-        dv1 = Vo_v - Vi_c_v
-        Dcpa1, _ = calculate_dcpa(dx, dy, du1, dv1)
-        crit1 = Dcpa1 > rpz
-
-        # Criterion 2: intruder reverts to initial velocity (Vi,i) logged at start
         Vi_i_u, Vi_i_v = reso._intr_init_vel.get(conflict, (Vi_c_u, Vi_c_v))
-        du2 = Vo_u - Vi_i_u
-        dv2 = Vo_v - Vi_i_v
-        Dcpa2, _ = calculate_dcpa(dx, dy, du2, dv2)
-        crit2 = Dcpa2 > rpz
 
-        if crit1 and crit2:
+        release = ftr_release_decision(dx, dy, rpz, Vo_u, Vo_v, Vi_c_u, Vi_c_v, Vi_i_u, Vi_i_v)
+
+        if release:
             delpairs.add(conflict)
             reso._intr_init_vel.pop(conflict, None)
             changeactive[idx1] = changeactive.get(idx1, False)
