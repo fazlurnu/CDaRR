@@ -169,9 +169,11 @@ def _draw_grouped_bars(ax, table, *, value_fmt=None, ylim=None):
 
 def _draw_grouped_boxplot(ax, table, *, ylim=None):
     '''Draws the CPA-distance boxes (one cluster per noise model, one box per
-    recovery method) onto ax. Outlier points are hidden (showfliers=False)
-    since the raw min_cpa tail is very long (up to ~1000 m) and would
-    otherwise swamp the plot; the box + whiskers already convey the spread.'''
+    recovery method) onto ax. Default Tukey whiskers (1.5*IQR); outlier points
+    are hidden (showfliers=False) since the raw min_cpa tail is very long (up to
+    ~1000 m) and would otherwise swamp the plot. Whisker reach conveys spread,
+    not the fraction below RPZ -- that fraction is the IPR panel's job (the
+    caption states this so the boxplot is not misread).'''
     n_models = len(NOISE_MODEL_ORDER)
     n_recovery = len(RECOVERY_ORDER)
     x = np.arange(n_models)
