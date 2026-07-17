@@ -10,14 +10,14 @@
     "sim_timer": 600.1999999999995
   },
   "c02_mvp_ftr_d2": {
-    "ipr": 1.0,
+    "ipr": 0.75,
     "n_active": 0,
-    "sha256": "074a694c9bee7120f0c97ca37e3389782266edee25bc0479de4024a654f9c5e4",
+    "sha256": "6db51d23646de59c1e58d111d89a0bb7f27594a8ded015befe71600be3c10ea5",
     "shape": [
-      2672,
+      3001,
       4
     ],
-    "sim_timer": 534.1999999999845
+    "sim_timer": 600.1999999999995
   },
   "c03_mvp_prob999_d2": {
     "ipr": 1.0,
@@ -82,7 +82,7 @@
   "c09_mvp_prob999_d2_rx07": {
     "ipr": 1.0,
     "n_active": 0,
-    "sha256": "7c3f848cc8ab7841eb9908413b055be1288652a55670828de7531268883d9fd0",
+    "sha256": "07fa2791dbdc96094fa4975c3bfd29134d7329fc52f9eef7ec401f3b390406e2",
     "shape": [
       401,
       4
@@ -91,13 +91,13 @@
   },
   "c10_mvp_prob999_perpair": {
     "ipr": 1.0,
-    "n_active": 0,
-    "sha256": "4287fadc242ff112be4a443f8d8d977839ec1e5f20312227bb65cfce41a0eca9",
+    "n_active": 1,
+    "sha256": "611fe086a81dfd39f619d293c6b725a8908281a131b418ddb01834e4f8fb66dd",
     "shape": [
-      888,
+      3001,
       4
     ],
-    "sim_timer": 177.39999999999847
+    "sim_timer": 600.1999999999995
   },
   "c11_mvp_ftr_d30_mix": {
     "ipr": 1.0,
@@ -112,7 +112,7 @@
   "c12_mvp_prob999_d30_ani": {
     "ipr": 1.0,
     "n_active": 0,
-    "sha256": "e9a19bdd8f3577f501fa76c0101d8d9b0109d477f152cae7d56f2e547616d87a",
+    "sha256": "05a207e12b272b05cd075eafbb1e76f632e356de6a5fb2dfa4c7f7a46504098f",
     "shape": [
       988,
       4
@@ -142,17 +142,17 @@
   "c15_mvp_prob999_mismatch": {
     "ipr": 1.0,
     "n_active": 0,
-    "sha256": "70b7d6cc38cc379e042a889bcf37619078e50172208388564b8c4549a6190bef",
+    "sha256": "72cc5295650a1091fff67ce81319ddc0b19148e019a3bbfa3a9b5866941e7cec",
     "shape": [
-      983,
+      1053,
       4
     ],
-    "sim_timer": 196.3999999999974
+    "sim_timer": 210.3999999999966
   },
   "c16_dist_prob999_rx099": {
     "ipr": 1.0,
     "n_active": 0,
-    "sha256": "2e7cec29567e5bfc430b49cfe6cff0268eb5a9d0fc6092ab949ebce97bb43bd2",
+    "sha256": "5e925969fe47b2f9ba1eb4cd931b303b55629d1fd25047e2efe46b215a4086ce",
     "shape": [
       621,
       4
