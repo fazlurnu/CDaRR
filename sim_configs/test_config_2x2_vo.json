@@ -1,0 +1,43 @@
+{
+  "scenario": {
+    "description": "2x2 fast equivalence-test config, VO resolution (mirror of test_config_2x2.json)",
+    "width": 2,
+    "height": 2,
+    "dpsi_deg": 3,
+    "horizontal_sep_m": 50
+  },
+
+  "aircraft": {
+    "type": "M600",
+    "init_speed_ownship_mps": 10.2889,
+    "init_speed_intruder_mps": 10.2889
+  },
+
+  "simulation": {
+    "simdt_factor": 4.0,
+    "tmax_factor": 100,
+    "done_timeout_s": 10.0
+  },
+
+  "conflict_models": {
+    "detection": "StateBased",
+    "resolution": "VO",
+    "recovery": "CPA"
+  },
+
+  "adsl": {
+    "seed": 44,
+    "confidence_interval_m": 10,
+    "confidence_interval_velo_mps": 1,
+    "reception_prob": 1.0
+  },
+
+  "bluesky": {
+    "max_tr": 15,
+    "max_dtr2": 10
+  },
+  "cdr_settings": {
+    "asas_marh": 1.05,
+    "lookahead_time_s": 15
+  }
+}
