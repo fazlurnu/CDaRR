@@ -1,25 +1,20 @@
 """Determinism guards.
 
 The TRUE guarantee — a fixed-order fresh process reproduces the baselines — is enforced by
-``test_golden_baseline.py`` (subprocess). Here we pin the KNOWN in-process order-dependence
-(KNOWN_ISSUES.md, KI-1) as an xfail, so if a future change makes runs order-independent it
-surfaces as an XPASS rather than silently passing.
+``test_golden_baseline.py`` (subprocess). ``test_n_jobs_invariance`` below pins n_jobs
+invariance as a real assertion: it was an xfail documenting KI-1 (in-process
+order-dependent nondeterminism from the MVP/VO recovery-singleton leak) until that leak
+was fixed (KNOWN_ISSUES.md, KI-1) — verified XPASS once the fix landed, then promoted here.
 """
 import numpy as np
 import pytest
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    reason="KI-1: in-process order-dependent nondeterminism (test/golden/KNOWN_ISSUES.md); "
-           "frozen behavior, not yet fixed",
-    strict=False,
-)
 def test_n_jobs_invariance():
-    """Would hold if runs were order-independent; currently xfail per KI-1.
-
-    n_jobs=1 runs all reps in one process (history accumulates); n_jobs=2 splits them
-    across workers (different per-worker history) -> per-run values can differ.
+    """n_jobs must not change results: n_jobs=1 runs all reps in one process (would
+    accumulate cross-run recovery state pre-KI-1-fix); n_jobs=2 splits them across
+    workers. Both must produce identical per-run values.
     """
     from sim.pairwise_stochastic.run_multiple_jobs import run_multiple_jobs
 
