@@ -67,6 +67,19 @@ def _create_cdr_models(cfg):
         raise ValueError(f"Unsupported resolution model: {cfg.resolution_model}")
     resolution = _RESOLUTION_MODELS[cfg.resolution_model]()
 
+    # BlueSky's EntityMeta makes MVP/VO process-wide singletons: the constructor
+    # above returns a persistent instance whose __init__ ran only on first use, so
+    # the per-run recovery bookkeeping (resopairs and _intr_init_vel) survives from
+    # one call to the next. Aircraft IDs are reused every run (DRO###/DRI###), so a
+    # stale resopairs makes a new run's first resolve treat already-in-conflict
+    # pairs as already-resolved -- skipping the "new pair" branch that records the
+    # initial intruder velocity -- and recovery then reuses the *previous* run's
+    # _intr_init_vel. That order-dependent leak is the KI-1 in-process
+    # nondeterminism (test/golden/KNOWN_ISSUES.md). Reset both so every run starts
+    # from a clean resolution state, independent of what ran before it.
+    resolution.resopairs = set()
+    resolution._intr_init_vel = {}
+
     if cfg.recovery_model not in _RECOVERY_MODELS:
         raise ValueError(f"Unsupported recovery model: {cfg.recovery_model}")
     recovery = _RECOVERY_MODELS[cfg.recovery_model]
