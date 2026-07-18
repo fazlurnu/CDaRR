@@ -7,6 +7,7 @@ from bluesky.tools.aero import cas2tas, casormach2tas, fpm, kts
 import bluesky as bs
 
 import json
+import os
 
 M2NM = 1/1852
 NM2M = 1852
@@ -15,14 +16,22 @@ DCPA_M = 0  # initial dcpa in meters
 
 ALT = 100
 
-## read params
-with open("envs/pairwise_params.json", "r") as f:
-    params = json.load(f)
+# Path-anchored (relative to this file, not the caller's cwd) and lazy
+# (read on first use, not at import time) -- refactor_fp.md Phase 5. The
+# original `open("envs/pairwise_params.json")` resolved against whatever
+# directory the importing process happened to be run from, which only
+# "worked" because every caller in this repo is run from the project root.
+_PARAMS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pairwise_params.json")
+_params_cache = None
 
-# Access parameters
-start_lat = params["start_lat"]
-start_lon = params["start_lon"]
-delta_lat_lon = params["delta_lat_lon"]
+
+def _get_pairwise_params():
+    global _params_cache
+    if _params_cache is None:
+        with open(_PARAMS_PATH, "r") as f:
+            _params_cache = json.load(f)
+    return _params_cache
+
 
 class PairwiseHorConflict():
     """ 
@@ -35,8 +44,13 @@ class PairwiseHorConflict():
                 init_speed_ownship: float, init_speed_intruder: float,      ## aircraft params
                 aircraft_type_ownship: str, aircraft_type_intruder: str = None,     ## aircraft params
                 init_dpsi: float = None, simdt_factor: int = 1) -> None:
-        
+
         self.traj = {}
+
+        _params = _get_pairwise_params()
+        start_lat = _params["start_lat"]
+        start_lon = _params["start_lon"]
+        delta_lat_lon = _params["delta_lat_lon"]
 
         self.nb_pair = pair_width * pair_height
 
@@ -213,6 +227,11 @@ class PairwiseHorConflictDist:
                  dcpa_range_m: tuple = (0.0, 50.0),
                  simdt_factor: int = 1,
                  rng: np.random.Generator = None) -> None:
+
+        _params = _get_pairwise_params()
+        start_lat = _params["start_lat"]
+        start_lon = _params["start_lon"]
+        delta_lat_lon = _params["delta_lat_lon"]
 
         self.nb_pair = pair_width * pair_height
         self.asas_pzr_m = asas_pzr_m

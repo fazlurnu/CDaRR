@@ -1,20 +1,14 @@
-import numpy as np
+''' Deprecated forwarding shim (refactor_fp.md Phase 5).
 
-class ReceptionModel:
-    """Packet reception sampler (Bernoulli per aircraft)."""
-
-    def __init__(self, reception_prob: float, rng: np.random.Generator):
-        if not (0.0 <= reception_prob <= 1.0):
-            raise ValueError("reception_prob must be in [0, 1]")
-        self.p = float(reception_prob)
-        
-        # this is just to generate random number to be used
-        # in the sample_indices
-        self.rng = rng
-
-    def sample_indices(self, n: int) -> np.ndarray:
-        """Return indices of aircraft that receive a packet this tick."""
-        if n <= 0:
-            return np.array([], dtype=int)
-        mask = self.rng.random(n) <= self.p
-        return np.where(mask)[0]
+This module moved to `legacy.sim_models.reception_model` -- it was the frozen
+reference implementation the functional-core port (cd/cr/crr/cns/cdarr) was
+verified against, and the live simulation loop
+(sim/pairwise_stochastic/loop.py, wired in by
+sim/pairwise_stochastic/get_ipr_stochastic_env.py's Phase 4 switchover) no
+longer uses it. Kept importable at this path, unchanged, as a grace-window
+forward -- so the equivalence test suite (test/equivalence/*.py, which
+compares the new core against this exact code) and any other existing caller
+keep working without edits. New code should import from
+`legacy.sim_models.reception_model` directly.
+'''
+from legacy.sim_models.reception_model import *  # noqa: F401,F403

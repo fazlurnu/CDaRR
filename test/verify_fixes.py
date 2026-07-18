@@ -54,28 +54,37 @@ def test_01_merge_conflict():
 
 # ---------------------------------------------------------------------------
 # #2 & #3: VO vertical math reachable, hpz uses resofacv
+#
+# refactor_fp.md's Phase 1/2 extracted VO.VO into the module-level, pure
+# vo_pair() function in cr/vo.py -- resofach/resofacv are now explicit
+# parameters (not self.*), and the per-pair body (horizontal + vertical
+# math) lives in one function, not a method with a `return dv, tsolV`
+# dead-code tail to check for. Checking cr/vo.py (canonical as of the Phase 4
+# switchover) for the equivalent pattern; the fix is additionally proven
+# intact -- not just present in source -- by
+# test/equivalence/test_equiv_resolve_vo.py's bit-identical L1 comparison
+# against the frozen legacy/sim_models/cr_vo.py.
 # ---------------------------------------------------------------------------
 def test_02_03_vo():
-    src = read("sim_models/cr_vo.py")
+    src = read("cr/vo.py")
 
-    # #3: hpz uses resofacv inside the VO method
-    has_resofacv = "hpz = np.max(conf.hpz[[idx1, idx2]] * self.resofacv)" in src
-    no_old_hpz = "hpz = np.max(conf.hpz[[idx1, idx2]] * self.resofach)" not in src
-    report("#3 VO.VO uses resofacv for hpz", has_resofacv and no_old_hpz)
+    # #3: hpz uses resofacv (now a plain parameter, no self.)
+    has_resofacv = "hpz = np.max(conf.hpz[[idx1, idx2]] * resofacv)" in src
+    no_old_hpz = "hpz = np.max(conf.hpz[[idx1, idx2]] * resofach)" not in src
+    report("#3 vo_pair uses resofacv for hpz", has_resofacv and no_old_hpz)
 
-    # #2: dead code after `return dv, tsolV` removed, vertical math present
-    vo_start = src.find("def VO(self, ownship, intruder, conf, qdr, dist, tLOS, idx1, idx2):")
+    # #2: vertical math present and reachable (no dead hardcoded dv3=0 tail)
+    vo_start = src.find("def vo_pair(")
     vo_body = src[vo_start:]
-    return_count = vo_body.count("return dv, tsolV")
     has_vertical_math = (
         "vrel_vs = ownship.vs[idx1] - intruder.vs[idx2]" in vo_body
         and "dv3 = (iV / tsolV)" in vo_body
     )
     no_dead_hardcode = "dv3 = 0\n        \n        dv = np.array([dv1, dv2, dv3])" not in vo_body
     report(
-        "#2 VO.VO has vertical math, no dead code",
-        return_count == 1 and has_vertical_math and no_dead_hardcode,
-        f"return_count={return_count}, vertical={has_vertical_math}",
+        "#2 vo_pair has vertical math, no dead code",
+        has_vertical_math and no_dead_hardcode,
+        f"vertical={has_vertical_math}, no_dead_hardcode={no_dead_hardcode}",
     )
 
     # Functional test of the vertical math (extracted, no bluesky needed)
@@ -153,9 +162,13 @@ def test_04_kwargs():
 
 # ---------------------------------------------------------------------------
 # #5: scenario randomization uses a seeded RNG
+#
+# get_ipr_stochastic_env.py is a thin wrapper as of the Phase 4 switchover
+# (refactor_fp.md); the scenario_rng logic itself now lives in
+# sim/pairwise_stochastic/loop.py.
 # ---------------------------------------------------------------------------
 def test_05_seeded():
-    src = read("sim/pairwise_stochastic/get_ipr_stochastic_env.py")
+    src = read("sim/pairwise_stochastic/loop.py")
     rand_block_start = src.find("def get_ipr_stochastic_env_randomized")
     rand_block = src[rand_block_start:]
 
@@ -235,7 +248,7 @@ def test_10_11_multijob():
 # #12: applyprio captures both returns
 # ---------------------------------------------------------------------------
 def test_12_applyprio():
-    src = read("sim_models/cr_vo.py")
+    src = read("legacy/sim_models/cr_vo.py")
     has_fix = "dv[idx1], dv[idx2] = self.applyprio(" in src
     no_old = "dv[idx1], _ = self.applyprio(" not in src
     report("#12 VO.resolve uses both applyprio returns", has_fix and no_old)
@@ -243,18 +256,25 @@ def test_12_applyprio():
 
 # ---------------------------------------------------------------------------
 # #13: cd_statebased uses intruder.ntraf for intruder reshapes
+#
+# cd/statebased.py (Phase 2's canonical location) extracted the du/dv
+# reshape into a shared _velocity_components(trk, gs, n) helper, called once
+# for ownship and once for intruder -- the fix now shows up as the call site
+# passing intruder.ntraf (not the reshape literal itself, which moved inside
+# the generic helper). The alt/vs vertical-conflict reshapes were untouched
+# by that extraction and still match verbatim.
 # ---------------------------------------------------------------------------
 def test_13_cd_statebased_ntraf():
-    src = read("sim_models/cd_statebased.py")
+    src = read("cd/statebased.py")
     checks = {
-        "intu reshape": "intu = intruder.gs * np.sin(inttrkrad).reshape((1, intruder.ntraf))" in src,
-        "intv reshape": "intv = intruder.gs * np.cos(inttrkrad).reshape((1, intruder.ntraf))" in src,
+        "intu/intv via _velocity_components(intruder...)":
+            "_velocity_components(intruder.trk, intruder.gs, intruder.ntraf)" in src,
         "alt reshape":  "intruder.alt.reshape((1, intruder.ntraf)).T" in src,
         "vs reshape":   "intruder.vs.reshape(1, intruder.ntraf).T" in src,
     }
     failed = [k for k, v in checks.items() if not v]
-    report("#13 cd_statebased: all 4 intruder reshapes use intruder.ntraf",
-           not failed, f"failed={failed}" if failed else "all 4 correct")
+    report("#13 cd_statebased: all intruder reshapes use intruder.ntraf",
+           not failed, f"failed={failed}" if failed else "all correct")
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +290,7 @@ def test_14_nb_pair():
 # #15: cns_adsl uses seeded RNG
 # ---------------------------------------------------------------------------
 def test_15_cns_adsl():
-    src = read("sim_models/cns_adsl.py")
+    src = read("legacy/sim_models/cns_adsl.py")
     no_global_random = (
         "np.random.multivariate_normal" not in src
         and "np.random.random(" not in src
