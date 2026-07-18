@@ -305,6 +305,177 @@ def get_ipr_stochastic_env(
     return distance_array, ipr, sim_timer, n_active
 
 
+def get_ipr_stochastic_env_randomized(
+    asas_marh: float,
+    confidence_interval: float,
+    confidence_interval_velo: float,
+    reception_prob: float,
+    lookahead_time: float,
+    dpsi: float,
+    seed: int = 44,
+    config_path: str = None,
+    threshold_probability: float = None,
+    recovery_model: str = None,
+    randomized_speed_heading: bool = True,
+):
+    ''' Functional-core reimplementation of
+    sim.pairwise_stochastic.get_ipr_stochastic_env.get_ipr_stochastic_env_randomized.
+    Same signature/contract (including ``randomized_speed_heading``, which the
+    legacy function also accepts but never reads inside its body -- the
+    dispatch on that flag happens one level up, in run_multiple_jobs; see
+    that module's docstring). Differs from get_ipr_stochastic_env only in:
+    randomized init speed/dpsi via a seeded scenario_rng, no pos_dist/latency_s
+    (always the default Gaussian, zero latency), and worldview uncertainty
+    always matched to the true noise (no assumed_confidence_interval support).
+    '''
+    cfg = get_configs(config_path) if config_path else get_configs()
+    if recovery_model is not None:
+        cfg.recovery_model = recovery_model
+
+    bs.settings.asas_marh = asas_marh
+
+    resolution_params = ResolutionParams(resofach=asas_marh, resofacv=float(bs.settings.asas_marv))
+
+    scenario_rng = np.random.default_rng(seed + 7919)
+    pairwise = PairwiseHorConflict(
+        pair_width=cfg.width,
+        pair_height=cfg.height,
+        asas_pzr_m=cfg.horizontal_sep,
+        dtlookahead=lookahead_time * 1.5,
+        init_speed_ownship=float(scenario_rng.uniform(10, 30)),
+        init_speed_intruder=float(scenario_rng.uniform(10, 30)),
+        init_dpsi=float(scenario_rng.uniform(0, 360)),
+        aircraft_type_ownship=cfg.aircraft_type,
+        simdt_factor=cfg.SIMDT_FACTOR,
+    )
+
+    simdt = bs.settings.simdt * cfg.SIMDT_FACTOR
+    tmax = 600
+
+    pos_std = float(confidence_interval) / _CI95_TO_STD_2D
+    vel_std = float(confidence_interval_velo) / _CI95_TO_STD_2D
+    pos_cov = cns.noise.make_covariance(pos_std)
+    vel_cov = cns.noise.make_covariance(vel_std)
+    pos_ci95 = pos_std * _CI95_TO_STD_2D
+
+    ownship_rng = np.random.default_rng(seed + 2)
+    rx_rng = np.random.default_rng(seed + 999)
+
+    n0 = int(pairwise._get_states().ntraf)
+    ownship_msg = cns.link.empty_message(n0)
+    intruder_msg = cns.link.empty_message(n0)
+    prev_intruder_msg = cns.link.empty_message(n0)
+
+    cdarr_state = RecoveryState()
+
+    sigma_r_worldview = _worldview_sigma(None, pos_std)
+    sigma_v_worldview = _worldview_sigma(None, vel_std)
+
+    cdarr_params = CdarrParams(
+        rpz=cfg.horizontal_sep, hpz=100.0, dtlookahead=lookahead_time,
+        resolution=cfg.resolution_model, resolution_params=resolution_params,
+        recovery=cfg.recovery_model, resofach=asas_marh,
+        sigma_r=sigma_r_worldview, sigma_v=sigma_v_worldview,
+        prob_threshold=threshold_probability, Ktheta=256,
+    )
+
+    sim_timer = 0.0
+    next_event_t = 0.0
+    event_dt = float(bs.settings.asas_dt)
+    eps = np.finfo(float).eps * 100
+
+    distance_array = []
+    done_start_time = None
+    initialized = False
+    ownship_first_call = True
+    action = None
+
+    while sim_timer < tmax:
+
+        states = pairwise._get_states()
+        n = int(states.ntraf)
+
+        if not initialized:
+            ownship_msg = _update_node_from_truth(
+                ownship_msg, states, ownship_first_call, 1.0, ownship_rng,
+                pos_cov, vel_cov, None, pos_ci95, latency_s=0.0)
+            ownship_first_call = False
+            intruder_msg = cns.link.relay(intruder_msg, ownship_msg, idx=None)
+            prev_intruder_msg = cns.link.relay(prev_intruder_msg, intruder_msg, idx=None)
+            initialized = True
+
+        if sim_timer + eps >= next_event_t:
+
+            ownship_msg = _update_node_from_truth(
+                ownship_msg, states, ownship_first_call, 1.0, ownship_rng,
+                pos_cov, vel_cov, None, pos_ci95, latency_s=0.0)
+            ownship_first_call = False
+
+            idx_rx = cns.reception.sample_received(n, reception_prob, rx_rng)
+            rx_mask = np.zeros(n, dtype=bool)
+            rx_mask[idx_rx] = True
+            idx_miss = np.where(~rx_mask)[0]
+
+            if idx_rx.size > 0:
+                intruder_msg = cns.link.relay(intruder_msg, ownship_msg, idx=idx_rx)
+            if idx_miss.size > 0:
+                intruder_msg = cns.link.relay(intruder_msg, prev_intruder_msg, idx=idx_miss)
+
+            prev_intruder_msg = cns.link.relay(prev_intruder_msg, intruder_msg, idx=None)
+
+            conf_gt = cd.statebased.detect(states, states, cfg.horizontal_sep, 100.0, lookahead_time)
+
+            id2idx = make_dict_id2idx(ownship_msg.id)
+            result = cdarr(ownship_msg, intruder_msg, cdarr_state, cdarr_params, id2idx=id2idx)
+            cdarr_state = result.state
+
+            action = (result.command.trk, result.command.gs_capped,
+                      result.command.vs_capped, result.command.alt,
+                      set(cdarr_state.resopairs))
+
+            missed = (
+                int(np.floor((sim_timer - next_event_t) / event_dt)) + 1
+                if sim_timer > next_event_t
+                else 1
+            )
+            next_event_t += missed * event_dt
+
+        dist = pairwise.step(action)
+        distance_array.append(dist)
+
+        done_now, is_active = _check_tcpa_tinhor_per_pair(
+            bs.traf.id,
+            conf_gt.tcpa_all,
+            conf_gt.tinhor_all,
+        )
+
+        dist_hist = np.asarray(distance_array)
+        min_dist_so_far = np.min(dist_hist, axis=0)
+
+        n_active = int(np.sum(is_active & (min_dist_so_far > 50.0)))
+
+        done_start_time, should_stop = done_with_timeout(
+            done_now,
+            done_start_time,
+            sim_timer,
+            cfg.DONE_TIMEOUT,
+            verbose=False,
+        )
+
+        if should_stop:
+            break
+
+        sim_timer += simdt
+
+    pairwise.reset()
+    distance_array = np.asarray(distance_array)[:, :pairwise.nb_pair]
+    min_dist = np.min(distance_array, axis=0)
+    n_los = int(np.sum(min_dist < cfg.horizontal_sep))
+    ipr = 1.0 - (n_los / float(pairwise.nb_pair))
+
+    return distance_array, ipr, sim_timer, n_active
+
+
 def get_ipr_stochastic_env_dist(
     confidence_interval: float,
     confidence_interval_velo: float,
